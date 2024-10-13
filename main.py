@@ -23,7 +23,7 @@ v_field = u_field
 # The index for the first velocity is equal to (c.L_slot/c.Lx) * c.nb_points
 v_field[c.nb_points - 1, 0:int((c.L_slot/c.Lx) * c.nb_points)] = c.U_slot
 v_field[0, 0:int((c.L_slot/c.Lx) * c.nb_points)] = -c.U_slot
-print(v_field)
 
 v_field[0, int((c.L_slot/c.Lx) * c.nb_points) + 1:int((c.L_coflow/c.Lx) * c.nb_points)] = c.U_coflow
 v_field[c.nb_points - 1, int((c.L_slot/c.Lx) * c.nb_points) + 1:int((c.L_coflow/c.Lx) * c.nb_points)] = -c.U_coflow
+
