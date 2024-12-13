@@ -12,7 +12,7 @@ class constants:
 
     L_coflow = 0.5e-3
 
-    U_slot = 1
+    U_slot = 1.0
 
     T_slot = 300
 
@@ -21,11 +21,15 @@ class constants:
     T_coflow = 300
 
     # Fluid density
-    ro = 1.1614
+    rho = 1.1614
 
     # Kimematic viscosity
     eta = 15e-6
 
-    dx = Lx / nb_points
+    dx = Lx / (nb_points - 1)
 
-    dy = Ly / nb_points
+    dy = Ly / (nb_points - 1)
+
+    nu = 15e-6
+
+    tolerance = 1e-6

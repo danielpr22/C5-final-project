@@ -23,7 +23,7 @@ y = np.linspace(0, Ly, nb_points)
 u_field = np.zeros((nb_points, nb_points))
 v_field = u_field
 
-# The index for the first velocity is equal to (c.L_slot/c.Lx) * c.nb_points
+# The index for the first velocity is equal to (L_slot/Lx) * nb_points
 v_field[nb_points - 1, 0:int((L_slot/Lx) * nb_points)] = U_slot
 v_field[0, 0:int((L_slot/Lx) * nb_points)] = -U_slot
 
