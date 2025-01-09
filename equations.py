@@ -1,5 +1,6 @@
 import sys
 import os
+import string
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -48,22 +49,27 @@ tolerance = 1e-6
 
 max_iter = 1000 # Maximum number of iterations
 
-
 P = np.zeros((nb_points, nb_points))  # Pressure
-P[:,:] = rho * R * T_slot
 
 
 ############################################
 # Initial conditions & boundary conditions #
 ############################################
-u = np.zeros((nb_points, nb_points))
-u[0:int(L_slot/Lx * nb_points), 0] = -U_slot # Speed at the top of the "flow" region (Methane)
-u[0:int(L_slot/Lx * nb_points), -1] = U_slot # Speed at the bottom of the "flow" region (Air)
-
-u[int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points), 0] = - U_coflow # Speed at the top of the "coflow" region (Nitrogen)
-u[int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points), -1] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-
 v = np.zeros((nb_points, nb_points))
+v[0, 0:int(L_slot/Lx * nb_points)] = -U_slot # Speed at the top of the "flow" region (Methane)
+v[-1, 0:int(L_slot/Lx * nb_points)] = U_slot # Speed at the bottom of the "flow" region (Air)
+
+v[0, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = - U_coflow # Speed at the top of the "coflow" region (Nitrogen)
+v[-1, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+
+P[0, 0:int(L_slot/Lx * nb_points)] = rho * R * T_slot
+P[-1, 0:int(L_slot/Lx * nb_points)] = rho * R * T_slot
+
+P[0, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = rho * R * T_coflow
+P[-1, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = rho * R * T_coflow
+
+
+u = np.zeros((nb_points, nb_points))
     
 u_star = np.copy(u)
 v_star = np.copy(v)
@@ -72,7 +78,7 @@ v_star = np.copy(v)
 #################################################
 # Derivatives and second derivatives definition #
 #################################################
-def derivative_x(u: np.array, dx=dx) -> np.array:
+def derivative_x(u: np.array, var_name : string, dx=dx) -> np.array:
     """
     Vectorized computation of the derivative along x-direction
     with upwinding based on the sign of u.
@@ -89,11 +95,22 @@ def derivative_x(u: np.array, dx=dx) -> np.array:
     u_right = np.roll(u, shift=-1, axis=0) # u[i+1, j]
     
     # Apply upwind scheme based on the sign of u
+
     derivative = np.where(u > 0, (u - u_left) / dx, (u_right - u) / dx)
+
+    if var_name == "u":
+        derivative[:,-1] = 0 # Right free limit condition
+ 
+    if var_name == "v": 
+        derivative[:,0] = 0 # Left slippery wall
+        derivative[:,-1] = 0 # Right free limit condition
     
+    if var_name == "P":
+        derivative[:,0] = 0 # Left slippery wall
+
     return derivative
 
-def derivative_y(u: np.array, dy=dy) -> np.array:
+def derivative_y(u: np.array, var_name : string, dy=dy) -> np.array:
     """
     Vectorized computation of the derivative along y-direction
     with upwinding based on the sign of u.
@@ -111,7 +128,11 @@ def derivative_y(u: np.array, dy=dy) -> np.array:
     
     # Apply upwind scheme based on the sign of u
     derivative = np.where(u > 0, (u - u_left) / dy, (u_right - u) / dy)
-    
+
+    if var_name == "P":
+        derivative[0,:] = 0
+        derivative[-1,:] = 0
+
     return derivative
 
 
@@ -136,16 +157,17 @@ def second_centered_y(u:np.array, dy = dy) -> np.array:
 
 for it in range(max_iter):
     # Navier-Stokes equations
-    u_star[1:-1, 1:-1] = u[1:-1, 1:-1] + dt * (- u[1:-1, 1:-1] * derivative_x(u)[1:-1, 1:-1] - v[1:-1, 1:-1] * derivative_y(u)[1:-1, 1:-1] - 1/rho * derivative_x(P)[1:-1, 1:-1] + nu * (second_centered_x(u)[1:-1, 1:-1] + second_centered_y(u)[1:-1, 1:-1]))
-    v_star[1:-1, 1:-1] = v[1:-1, 1:-1] + dt * (- u[1:-1, 1:-1] * derivative_x(v)[1:-1, 1:-1] - v[1:-1, 1:-1] * derivative_y(v)[1:-1, 1:-1] - 1/rho * derivative_y(P)[1:-1, 1:-1] + nu * (second_centered_x(v)[1:-1, 1:-1] + second_centered_y(v)[1:-1, 1:-1])) 
+    u_star[1:-1, 1:-1] = u[1:-1, 1:-1] + dt * (+ u[1:-1, 1:-1] * derivative_y(v, "v")[1:-1, 1:-1] - v[1:-1, 1:-1] * derivative_y(u, "u")[1:-1, 1:-1] - 1/rho * derivative_x(P, "P")[1:-1, 1:-1] + nu * (second_centered_x(u)[1:-1, 1:-1] + second_centered_y(u)[1:-1, 1:-1]))
+    v_star[1:-1, 1:-1] = v[1:-1, 1:-1] + dt * (- u[1:-1, 1:-1] * derivative_x(v, "v")[1:-1, 1:-1] - v[1:-1, 1:-1] * derivative_y(v, "v")[1:-1, 1:-1] - 1/rho * derivative_y(P, "P")[1:-1, 1:-1] + nu * (second_centered_x(v)[1:-1, 1:-1] + second_centered_y(v)[1:-1, 1:-1])) 
+
 
     # Update boundary conditions
-    #u_star[0,:] = u_star[1,:]
-    u_star[int((L_slot + L_coflow)/Lx * nb_points):nb_points, 0] = 0    # Top wall after the coflow(no-slip)
-    u_star[int((L_slot + L_coflow)/Lx * nb_points):nb_points, -1] = 0   # Bottom wall after the coflow (no-slip)
+
+    #u_star[0, int((L_slot + L_coflow)/Lx * nb_points):nb_points] = 0    # Top wall after the coflow(no-slip)
+    #u_star[-1, int((L_slot + L_coflow)/Lx * nb_points):nb_points] = 0   # Bottom wall after the coflow (no-slip)
 
     # Convergence check
-    if np.max(np.abs(u_star - u)) < tolerance:
+    if np.max(np.abs(v_star - v)) < tolerance:
         print(f"Converged after {it} iterations.")
         break
 
@@ -153,7 +175,7 @@ for it in range(max_iter):
 
 # Once the u field is correctly advected, we calculate "a"
 # Conservation of mass
-strain_rate = np.abs(-derivative_x(u)) # Since dv/dy = -du/dx
+strain_rate = np.abs(-derivative_x(u, "u")) # Since dv/dy = -du/dx
 
 max_strain_rate = np.max(strain_rate)
 
