@@ -9,7 +9,7 @@ Authors: Samuel HOYOS, Georges SAIFI, Daniel PERALES RIOS
 """
 
 from constants.constants import Lx, Ly, nb_points, L_slot, U_slot, L_coflow, U_coflow, dt
-import equations as eq
+import final_project as eq
 import numpy as np
 
 # Mesh definition
