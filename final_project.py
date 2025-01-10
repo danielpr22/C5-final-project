@@ -49,7 +49,7 @@ tolerance = 1e-6
 
 max_iter = 1000 # Maximum number of iterations
 
-omega = 1.1 # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
+omega = 1.5 # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
 
 
 ##################
@@ -138,7 +138,7 @@ def second_centered_y(u:np.array, dy = dy) -> np.array:
 
     return (u_right - 2 * u + u_left) / dy**2
 
-def sor(P: np.array, f: np.array, dx=dx, dy=dy, omega=omega, tol=tolerance, max_iter=max_iter) -> np.array:
+def sor(P: np.array, f: np.array, dx=dx, dy=dy, omega=omega, tol=10e5, max_iter=100) -> np.array:
     """
     Solve the Poisson equation for pressure correction using Successive Over-Relaxation (SOR).
 
