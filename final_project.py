@@ -55,7 +55,7 @@ dy = Ly / (nb_points - 1)
 
 nu = 15e-6
 
-tolerance = 1e-6
+tolerance = 1e-4
 
 max_iter = 100  # Maximum number of iterations
 
@@ -80,6 +80,10 @@ v[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot # Speed at the top of the "flow
 v[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
 v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
 v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow
+
+plt.imshow(np.where(u != np.nan, u, np.nan), origin="lower")
+plt.colorbar()
+plt.show()
 
 #################################################
 # Derivatives and second derivatives definition #
@@ -158,54 +162,100 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return (u_right - 2 * u + u_left) / dy**2
 
 
-@jit(nopython=True, fastmath=True, parallel=True, cache=False)
-def sor_kernel(P, f, coef, omega, dx2_inv, dy2_inv, nb_points):
-    """Optimized SOR kernel using Numba"""
-    for i in range(1, nb_points - 1):  # Exclude boundary points
-        for j in range(1, nb_points - 1):
-            # Compute the new pressure using the SOR formula
-            P_new = coef * ((P[i + 1, j] + P[i - 1, j]) * dx2_inv
-                            + (P[i, j + 1] + P[i, j - 1]) * dy2_inv - f[i, j])
+# @jit(nopython=True, fastmath=True, parallel=True, cache=False)
+# def sor_kernel(P, f, coef, omega, dx2_inv, dy2_inv, nb_points):
+#     """Optimized SOR kernel using Numba"""
+#     P_old = np.copy(P)
+#     P_new = np.copy(P)
+#     P_aux= np.copy(P)
+#     for i in range(1, nb_points - 1):  # Exclude boundary points
+#         for j in range(1, nb_points - 1):
+#             # Compute the new pressure using the SOR formula
+#             P_aux[i, j] = coef * ((P_old[i + 1, j] + P_new[i - 1, j]) * dx2_inv
+#                             + (P_old[i, j + 1] + P_new[i, j - 1]) * dy2_inv - f[i, j])
             
-            P[i, j] = (1 - omega) * P[i, j] + omega * P_new
+#             P_new[i, j] = (1 - omega) * P_old[i, j] + omega * P_aux
+#             P_old = np.copy(P_new)
 
-    return P
+#     return P
 
 
-def sor(P: np.array, f: np.array, dx=dx, dy=dy, tol=tolerance, max_iter=max_iter) -> np.array:
+# def sor(P: np.array, f: np.array, dx=dx, dy=dy, tol=tolerance, max_iter=max_iter) -> np.array:
+#     """
+#     Solve the Poisson equation for pressure correction using Successive Over-Relaxation (SOR).
+
+#     Parameters:
+#         P (np.array): Initial pressure field (2D array).
+#         f (np.array): Source term (right-hand side of the Poisson equation).
+#         omega (float): Relaxation factor for SOR (1 < omega < 2).
+#         tol (float): Convergence tolerance.
+#         max_iter (int): Maximum number of iterations.
+
+#     Returns:
+#         np.array: Updated pressure field.
+#     """
+#     dx2_inv = 1 / (dx**2)
+#     dy2_inv = 1 / (dy**2)
+#     coef = 1 / (2 * (dx2_inv + dy2_inv))
+#     # Coefficient for the discretized Poisson equation
+
+#     for it in tqdm(range(max_iter)):
+#         P_old = P.copy()  # Save the old pressure field for convergence check
+
+#         # Update pressure using SOR
+#         # P_new = np.zeros_like(P)
+
+#         P = sor_kernel(P, f, dx2_inv=dx2_inv, dy2_inv=dy2_inv, omega=omega, nb_points=nb_points, coef=coef)
+#         residual = P - P_old
+
+#         # Check for convergence using the infinity norm of the difference (maximum difference amongst all the points)
+#         if (np.linalg.norm(residual, ord=np.inf) <= tol):
+#             print(f"SOR converged after {it+1} iterations.")
+#             return P
+
+#     print("SOR did not converge within the maximum number of iterations.")
+#     return P
+
+
+def sor(P, f, tolerance=tolerance, max_iter=max_iter, omega=omega):
     """
-    Solve the Poisson equation for pressure correction using Successive Over-Relaxation (SOR).
+    Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
 
     Parameters:
-        P (np.array): Initial pressure field (2D array).
-        f (np.array): Source term (right-hand side of the Poisson equation).
-        omega (float): Relaxation factor for SOR (1 < omega < 2).
-        tol (float): Convergence tolerance.
+        P (np.array): Initial guess for the pressure field.
+        f (np.array): Right-hand side of the Poisson equation.
+        tolerance (float): Convergence tolerance for the iterative method.
         max_iter (int): Maximum number of iterations.
+        omega (float): Relaxation factor, between 1 and 2.
 
     Returns:
         np.array: Updated pressure field.
     """
-    dx2_inv = 1 / (dx**2)
-    dy2_inv = 1 / (dy**2)
-    coef = 1 / (2 * (dx2_inv + dy2_inv))
-    # Coefficient for the discretized Poisson equation
+    # Grid dimensions
+    ny, nx = P.shape
+    
+    for iteration in range(max_iter):
+        P_old = P.copy()
+        
+        for i in range(1, ny - 1):
+            for j in range(1, nx - 1):
+                # Discretized Laplacian of P
+                laplacian_P = (P[i+1, j] + P[i-1, j]) / dx**2 + (P[i, j+1] + P[i, j-1]) / dy**2
+                coefficient = 2 * (1 / dx**2 + 1 / dy**2)
+                
+                # Update P using the SOR formula
+                P[i, j] = (1 - omega) * P[i, j] + (omega / coefficient) * (f[i, j] - laplacian_P)
+        
+        # Compute the residual to check for convergence
+        residual = np.linalg.norm(P - P_old, ord=2)
+        if np.linalg.norm(P_old, ord=2) > 1e-10:  # Avoid divide-by-zero by checking the norm
+            residual /= np.linalg.norm(P_old, ord=2)
+        if residual < tolerance:
+            print(f"SOR converged after {iteration + 1} iterations with residual {residual:.2e}.")
+            break
+    else:
+        print(f"SOR did not converge after {max_iter} iterations. Residual: {residual:.2e}")
 
-    for it in tqdm(range(max_iter)):
-        P_old = P.copy()  # Save the old pressure field for convergence check
-
-        # Update pressure using SOR
-        # P_new = np.zeros_like(P)
-
-        P = sor_kernel(P, f, dx2_inv=dx2_inv, dy2_inv=dy2_inv, omega=omega, nb_points=nb_points, coef=coef)
-        residual = P - P_old
-
-        # Check for convergence using the infinity norm of the difference (maximum difference amongst all the points)
-        if (np.linalg.norm(residual, ord=np.inf) <= tol):
-            print(f"SOR converged after {it+1} iterations.")
-            return P
-
-    print("SOR did not converge within the maximum number of iterations.")
     return P
 
 
