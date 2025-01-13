@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from numba import jit
+import numpy as np
+
 
 # We had a problem with the path of the other module
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -13,7 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # Constants #
 #############
 
-nb_points = 20
+nb_points = 50
 
 R = 8.314  # Ideal gas constant in J/(mol* K)
 
@@ -23,7 +25,7 @@ M_air = 0.02895  # kg/mol
 
 M_CH4 = 0.016042  # kg/mol
 
-dt = 1e-8
+dt = 1e-3
 
 Lx = 2e-3
 
@@ -55,7 +57,7 @@ nu = 15e-6
 
 tolerance = 1e-6
 
-max_iter = 30  # Maximum number of iterations
+max_iter = 100  # Maximum number of iterations
 
 omega = 1.88  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
 
@@ -71,14 +73,18 @@ u = np.zeros((nb_points, nb_points))
 # Pressure field
 P = np.zeros((nb_points, nb_points))
 
+u[:, 0] = 0
+u[0, :] = 0
+u[-1, :] = 0
+v[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot # Speed at the top of the "flow" region (Methane)
+v[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow
 
-# P[0, 0:int(L_slot/Lx * nb_points)] = rho * R * T_slot/M_CH4
-# P[-1, 0:int(L_slot/Lx * nb_points)] = rho * R * T_slot/M_air
-# P[0, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = rho * R * T_coflow/M_N2
-# P[-1, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = rho * R * T_coflow/M_N2
 #################################################
 # Derivatives and second derivatives definition #
 #################################################
+
 def derivative_x(u: np.array, var_name: string, dx=dx) -> np.array:
     """
     Vectorized computation of the derivative along x-direction
@@ -92,6 +98,7 @@ def derivative_x(u: np.array, var_name: string, dx=dx) -> np.array:
         np.array: Array of derivatives.
     """
     # Create shifted versions of the array for upwind calculation
+
     u_left = np.roll(u, shift=1, axis=0)  # u[i-1, j]
     u_right = np.roll(u, shift=-1, axis=0)  # u[i+1, j]
 
@@ -110,7 +117,6 @@ def derivative_x(u: np.array, var_name: string, dx=dx) -> np.array:
         derivative[:, 0] = 0  # Left slippery wall
 
     return derivative
-
 
 def derivative_y(u: np.array, var_name: string, dy=dy) -> np.array:
     """
@@ -137,14 +143,12 @@ def derivative_y(u: np.array, var_name: string, dy=dy) -> np.array:
 
     return derivative
 
-
 def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     u_left = np.roll(u, shift=1, axis=0)  # u[i-1, j]
     u_right = np.roll(u, shift=-1, axis=0)  # u[i+1, j]
 
     return (u_right - 2 * u + u_left) / dx**2
-
 
 def second_centered_y(u: np.array, dy=dy) -> np.array:
 
@@ -154,76 +158,21 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return (u_right - 2 * u + u_left) / dy**2
 
 
-import numpy as np
-
-# def sor(P: np.array, f: np.array, dx=dx, dy=dy, omega=omega, tol=1e-2, max_iter=1000) -> np.array:
-#     """
-#     Solve the Poisson equation for pressure correction using Successive Over-Relaxation (SOR).
-
-#     Parameters:
-#         P (np.array): Initial pressure field (2D array).
-#         f (np.array): Source term (right-hand side of the Poisson equation).
-#         dx (float): Grid spacing in the x-direction.
-#         dy (float): Grid spacing in the y-direction.
-#         omega (float): Relaxation factor for SOR (1 < omega < 2).
-#         tol (float): Convergence tolerance for the residual norm.
-#         max_iter (int): Maximum number of iterations.
-
-#     Returns:
-#         np.array: Updated pressure field.
-#     """
-#     coef = 1 / (2 / dx**2 + 2 / dy**2)  # Coefficient for the discretized Poisson equation
-#     Nx, Ny = P.shape  # Grid size
-
-#     for it in range(max_iter):
-#         P_old = P.copy()  # Save the old pressure field
-#         P_new = np.zeros_like(P)
-#         # Update pressure using SOR
-#         for i in range(1, Nx - 1):  # Exclude boundary points
-#             for j in range(1, Ny - 1):
-#                 # Compute the new pressure using the SOR formula
-#                 P_new = coef * (
-#                     (P[i+1, j] + P[i-1, j]) / dx**2 +
-#                     (P[i, j+1] + P[i, j-1]) / dy**2 -
-#                     f[i, j]
-#                 )
-#                 P[i, j] = (1 - omega) * P[i, j] + omega * P_new
-
-#         # Compute the residual norm
-#         residual = np.zeros_like(P)
-#         for i in range(1, Nx - 1):
-#             for j in range(1, Ny - 1):
-#                 residual[i, j] = f[i, j] - (
-#                     (P[i+1, j] - 2 * P[i, j] + P[i-1, j]) / dx**2 +
-#                     (P[i, j+1] - 2 * P[i, j] + P[i, j-1]) / dy**2
-#                 )
-#         residual_norm = np.linalg.norm(residual, ord=np.inf)
-
-#         # Check for convergence
-#         if residual_norm < tol:
-#             print(f"SOR converged after {it + 1} iterations with residual norm {residual_norm:.2e}.")
-#             return P
-
-#     print("SOR did not converge within the maximum number of iterations.")
-#     return P
-
-
 @jit(nopython=True, fastmath=True, parallel=True, cache=False)
 def sor_kernel(P, f, coef, omega, dx2_inv, dy2_inv, nb_points):
     """Optimized SOR kernel using Numba"""
     for i in range(1, nb_points - 1):  # Exclude boundary points
         for j in range(1, nb_points - 1):
             # Compute the new pressure using the SOR formula
-            P_new = coef * (
-                (P[i + 1, j] + P[i - 1, j]) * dx2_inv
-                + (P[i, j + 1] + P[i, j - 1]) * dy2_inv
-                - f[i, j]
-            )
+            P_new = coef * ((P[i + 1, j] + P[i - 1, j]) * dx2_inv
+                            + (P[i, j + 1] + P[i, j - 1]) * dy2_inv - f[i, j])
+            
             P[i, j] = (1 - omega) * P[i, j] + omega * P_new
+
     return P
 
 
-def sor(P: np.array, f: np.array, dx=dx, dy=dy, tol=1e-2, max_iter=1000000) -> np.array:
+def sor(P: np.array, f: np.array, dx=dx, dy=dy, tol=tolerance, max_iter=max_iter) -> np.array:
     """
     Solve the Poisson equation for pressure correction using Successive Over-Relaxation (SOR).
 
@@ -248,21 +197,11 @@ def sor(P: np.array, f: np.array, dx=dx, dy=dy, tol=1e-2, max_iter=1000000) -> n
         # Update pressure using SOR
         # P_new = np.zeros_like(P)
 
-        P = sor_kernel(
-            P,
-            f,
-            dx2_inv=dx2_inv,
-            dy2_inv=dy2_inv,
-            omega=omega,
-            nb_points=nb_points,
-            coef=coef,
-        )
+        P = sor_kernel(P, f, dx2_inv=dx2_inv, dy2_inv=dy2_inv, omega=omega, nb_points=nb_points, coef=coef)
         residual = P - P_old
-        # Check for convergence using the infinity norm of the difference
 
-        if (
-            np.linalg.norm(residual, ord=np.inf) <= tol
-        ):  # Takes the maximum difference amongst all the points
+        # Check for convergence using the infinity norm of the difference (maximum difference amongst all the points)
+        if (np.linalg.norm(residual, ord=np.inf) <= tol):
             print(f"SOR converged after {it+1} iterations.")
             return P
 
@@ -270,26 +209,9 @@ def sor(P: np.array, f: np.array, dx=dx, dy=dy, tol=1e-2, max_iter=1000000) -> n
     return P
 
 
-u[:, 0] = 0
-u[0, :] = 0
-u[-1, :] = 0
-# Boundary conditions for u, v and their first derivatives (the latter is included inside the derivative functions)
-v[0, 0 : int(L_slot / Lx * nb_points)] = (
-    -U_slot
-)  # Speed at the top of the "flow" region (Methane)
-v[-1, 0 : int(L_slot / Lx * nb_points)] = (
-    U_slot  # Speed at the bottom of the "flow" region (Air)
-)
-v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = (
-    -U_coflow
-)  # Speed at the top of the "coflow" region (Nitrogen)
-v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = (
-    U_coflow
-)
 ##########################
 # Fractional-step method #
 ##########################
-
 
 def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=None):
     """
@@ -365,9 +287,9 @@ def animate_flow_evolution(
     nb_points,
     L_slot,
     L_coflow,
-    interval=200,
+    interval=1500,
     skip_frames=2,
-    save_path=None,
+    save_path='C:\\Users\\danie\\Desktop\\animation.gif',
 ):
     """
     Create a slower animation of the flow evolution over time, accounting for matrix indexing.
@@ -471,7 +393,7 @@ def animate_flow_evolution(
 # Lists to store velocity fields at different timesteps
 u_history = []
 v_history = []
-for it in tqdm(range(max_iter)):
+for it in tqdm(range(100)):
 
     # Speed at the top of the "coflow" region (Nitrogen)
 
@@ -483,60 +405,28 @@ for it in tqdm(range(max_iter)):
     u_star[0, :] = 0
     u_star[-1, :] = 0
     # Boundary conditions for u_star and v_star
-    v_star[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v_star[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v_star[
-        0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_star[
-        -1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_star[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot  # Speed at the top of the "flow" region (Methane)
+    v_star[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
 
     # Step 2
-    u_double_star = u_star + dt * (
-        nu * (second_centered_x(u_star) + second_centered_y(u_star))
-    )
-    v_double_star = v_star + dt * (
-        nu * (second_centered_x(v_star) + second_centered_y(v_star))
-    )
+    u_double_star = u_star + dt * (nu * (second_centered_x(u_star) + second_centered_y(u_star)))
+    v_double_star = v_star + dt * (nu * (second_centered_x(v_star) + second_centered_y(v_star)))
 
+
+    # Boundary conditions for P, u_double_star, v_double_star, d(u_double_star)/dx and d(v_double_star)/dy (the latter two are directly included in the derivative functions)
     u_double_star[:, 0] = 0
     u_double_star[0, :] = 0
     u_double_star[-1, :] = 0
-    # Boundary conditions for P, u_double_star, v_double_star, d(u_double_star)/dx and d(v_double_star)/dy (the latter two are directly included in the derivative functions)
-    v_double_star[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v_double_star[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v_double_star[
-        0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_double_star[
-        -1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_double_star[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot  # Speed at the top of the "flow" region (Methane)
+    v_double_star[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v_double_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_double_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
 
     # Step 3
-
-    P = sor(
-        P,
-        f=rho
-        / dt
-        * (derivative_x(u_double_star, "u") + derivative_y(v_double_star, "v")),
-    )
-
-    #
-    # Boundary conditions for P (and for dP/dx and dP/dy, that are already inside the derivative functions)
-    # P[0, 0:int(L_slot/Lx * nb_points)] = rho * R * T_slot/M_CH4
-    # P[-1, 0:int(L_slot/Lx * nb_points)] = rho * R * T_slot/M_air
-    # P[0, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = rho * R * T_coflow/M_N2
-    # P[-1, int(L_slot/Lx * nb_points):int((L_slot + L_coflow)/Lx * nb_points)] = rho * R * T_coflow/M_N2
-
+    P = sor(P, f=rho / dt * (derivative_x(u_double_star, "u") + derivative_y(v_double_star, "v")))
+   
     # Step 4
     u_new = u_double_star - dt / rho * derivative_x(P, "P")
     v_new = v_double_star - dt / rho * derivative_y(P, "P")
@@ -545,25 +435,20 @@ for it in tqdm(range(max_iter)):
     u_new[0, :] = 0
     u_new[-1, :] = 0
     # Boundary conditions for P, u_new, v_new, d(u_new)/dx and d(v_new)/dy (the latter two are directly included in the derivative functions)
-    v_new[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v_new[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v_new[
-        0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_new[
-        -1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = U_coflow
+    v_new[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot  # Speed at the top of the "flow" region (Methane)
+    v_new[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v_new[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_new[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow
 
     # Updating of the new fields
     u = np.copy(u_new)
     v = np.copy(v_new)
+
     if it % 1 == 0:
         u_history.append(u.copy())
         v_history.append(v.copy())
+
+
 plot_velocity_fields(u_history[0], v_history[0], Lx, Ly, nb_points, L_slot, L_coflow)
 
 animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
@@ -571,7 +456,6 @@ animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow
 
 # Once the u field is correctly advected, we calculate "a"
 strain_rate = np.abs(-derivative_x(u, "u"))  # Since dv/dy = -du/dx
-
 
 max_strain_rate = np.max(strain_rate)
 
