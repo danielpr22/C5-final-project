@@ -8,7 +8,16 @@ Authors: Samuel HOYOS, Georges SAIFI, Daniel PERALES RIOS
 
 """
 
-from constants.constants import Lx, Ly, nb_points, L_slot, U_slot, L_coflow, U_coflow, dt
+from constants.constants import (
+    Lx,
+    Ly,
+    nb_points,
+    L_slot,
+    U_slot,
+    L_coflow,
+    U_coflow,
+    dt,
+)
 import final_project as eq
 import numpy as np
 
@@ -24,11 +33,14 @@ u_field = np.zeros((nb_points, nb_points))
 v_field = u_field
 
 # The index for the first velocity is equal to (L_slot/Lx) * nb_points
-v_field[nb_points - 1, 0:int((L_slot/Lx) * nb_points)] = U_slot
-v_field[0, 0:int((L_slot/Lx) * nb_points)] = -U_slot
+v_field[nb_points - 1, 0 : int((L_slot / Lx) * nb_points)] = U_slot
+v_field[0, 0 : int((L_slot / Lx) * nb_points)] = -U_slot
 
-v_field[0, int((L_slot/Lx) * nb_points) + 1:int((L_coflow/Lx) * nb_points)] = U_coflow
-v_field[nb_points - 1, int((L_slot/Lx) * nb_points) + 1:int((L_coflow/Lx) * nb_points)] = -U_coflow
+v_field[0, int((L_slot / Lx) * nb_points) + 1 : int((L_coflow / Lx) * nb_points)] = (
+    U_coflow
+)
+v_field[
+    nb_points - 1, int((L_slot / Lx) * nb_points) + 1 : int((L_coflow / Lx) * nb_points)
+] = -U_coflow
 
 print(eq.fractional_step(u_field, v_field, dt))
-
