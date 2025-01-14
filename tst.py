@@ -13,7 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # Constants #
 #############
 
-nb_points = 40
+nb_points = 52
 
 R = 8.314  # Ideal gas constant in J/(mol* K)
 
@@ -56,11 +56,11 @@ nu = 15e-6
 
 tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
 
-tolerance_sys = 1e-5 # Tolerance for the convergence of the whole system
+tolerance_sys = 1e-4 # Tolerance for the convergence of the whole system
 
 max_iter = 10000  # Maximum number of iterations for achieving convergence
 
-omega = 1.2  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
+omega = 1.5  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
 
 
 ##################
@@ -104,20 +104,16 @@ Y_n2 = np.zeros((nb_points, nb_points))
 #     return du_dy
 
 @jit(fastmath=True, nopython=True)
-def derivative_x_upwind(vel: np.array, u:np.array,dx=dx) -> np.array:
+def derivative_x_upwind(vel: np.array, u:np.array, dx=dx) -> np.array:
     dvel_dx = np.zeros_like(vel)
 
     # For interior points, choose upwind direction based on the sign of u
-    for i in range(1, vel.shape[1]-1):  # Skip the boundaries
-        dvel_dx[:, i] = np.where(
-            u[:, i] >= 0,
-            (vel[:, i] - vel[:, i - 1]) / dx,  # upwind difference for positive flow
-            (vel[:, i + 1] - vel[:, i]) / dx,  # upwind difference for negative flow
-        )
+    for i in range(1, vel.shape[1] - 1): # Skip the boundaries
+        dvel_dx[:, i] = np.where(u[:, i] >= 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
 
     # For boundaries, velse forward or backward differences
-    dvel_dx[:, 0] = (vel[:, 1] - vel[:, 0]) / dx  # Forward difference at the first colvelmn
-    dvel_dx[:, -1] = (vel[:, -1] - vel[:, -2]) / dx  # Backward difference at the last colvelmn
+    dvel_dx[:, 0] = (vel[:, 1] - vel[:, 0]) / dx  # Forward difference at the first column
+    dvel_dx[:, -1] = (vel[:, -1] - vel[:, -2]) / dx  # Backward difference at the last column
 
     return dvel_dx
 
@@ -127,11 +123,8 @@ def derivative_y_upwind(vel: np.array, v:np.array, dy=dy) -> np.array:
 
     # For interior points, choose upwind direction based on the sign of vel
     for i in range(1, vel.shape[0]-1): 
-        dvel_dy[i, :] = np.where(
-            v[i, :] >= 0,
-            (vel[i, :] - vel[i - 1, :]) / dy,  # upwind difference for positive flow
-            (vel[i + 1, :] - vel[i, :]) / dy,  # Upwind difference for negative flow
-        )
+        # Differenciate between positive and negative flow
+        dvel_dy[i, :] = np.where(v[i, :] >= 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
 
     # For boundaries, use forward or backward differences
     dvel_dy[0, :] = (vel[1, :] - vel[0, :]) / dy  # Forward difference at the first row
@@ -164,6 +157,7 @@ def derivative_y(u: np.array, dy=dy) -> np.array:
 
     return du_dy
 
+@njit(fastmath=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     d2u_dx2 = np.zeros_like(u)
@@ -171,6 +165,7 @@ def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     return d2u_dx2
 
+@njit(fastmath=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
 
     d2u_dy2 = np.zeros_like(u)
@@ -452,8 +447,9 @@ def animate_flow_evolution(
 u_history = []
 v_history = []
 
-for it in tqdm(range(nb_timesteps)):
 
+@njit(fastmath=True)
+def system_evolution_kernel(u, v, P, Y_n2):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
     u[0, :] = 0
@@ -474,10 +470,10 @@ for it in tqdm(range(nb_timesteps)):
     Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
     # Step 1
-    u_star = u - dt * (u * derivative_x(u) + v * derivative_y(u))
-    v_star = v - dt * (u * derivative_x(v) + v * derivative_y(v))
+    u_star = u - dt * (u * derivative_x_upwind(u, u) + v * derivative_y_upwind(u, v))
+    v_star = v - dt * (u * derivative_x_upwind(v, u) + v * derivative_y_upwind(v, v))
     # Species transport 
-    Y_n2_star = Y_n2 - dt * (u * derivative_x(Y_n2) + v * derivative_y(Y_n2))
+    Y_n2_star = Y_n2 - dt * (u * derivative_x_upwind(Y_n2, u) + v * derivative_y_upwind(Y_n2, v))
 
     # Boundary conditions for u_star and v_star
     u_star[:, 0] = 0
@@ -522,7 +518,6 @@ for it in tqdm(range(nb_timesteps)):
     Y_n2_double_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2_double_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
-
     P[:, 0] = P[:, 1] # dP/dx = 0 at the left wall
     P[0, :] = P[1, :] # dP/dy = 0 at the top wall
     P[-1, :] = P[-2, :] # dP/dy = 0 at the bottom wall
@@ -537,8 +532,8 @@ for it in tqdm(range(nb_timesteps)):
     P[:, -1] = 0 # P = 0 at the right free limit
    
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x(P)
-    v_new = v_double_star - dt / rho * derivative_y(P)
+    u_new = u_double_star - dt / rho * derivative_x_upwind(P, np.ones_like(P))
+    v_new = v_double_star - dt / rho * derivative_y_upwind(P, np.ones_like(P))
 
     # Boundary conditions for u_new, v_new
     u_new[:, 0] = 0
@@ -554,6 +549,13 @@ for it in tqdm(range(nb_timesteps)):
     v_new[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow
     v_new[:, 0] = v_new[:, 1] # dv/dx = 0 at the left wall
     v_new[:, -1] = v_new[:, -2] # dv/dx = 0 at the right free limit
+
+    return u_new, v_new, P, Y_n2_double_star
+
+
+for it in tqdm(range(nb_timesteps)):
+
+    u_new, v_new, P, Y_n2_double_star = system_evolution_kernel(u, v, P, Y_n2)
 
     residual = np.linalg.norm(v - v_new, ord=2)
     if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
