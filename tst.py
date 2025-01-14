@@ -45,8 +45,7 @@ U_coflow = 0.2
 
 T_coflow = 300
 
-# Fluid density
-rho = 1.1614
+rho = 1.1614 # Fluid density
 
 dx = Lx / (nb_points - 1)
 
@@ -82,34 +81,15 @@ Y_n2 = np.zeros((nb_points, nb_points))
 # Derivatives and second derivatives definition #
 #################################################
 
-# The sense of the derivatives is inversed!!
-# def derivative_x(u: np.array, dx=dx) -> np.array:
-#     du_dx = np.zeros_like(u)
-#     du_dx[:, 1:-1] = (u[:, 2:] - u[:, :-2]) / (2 * dx)  # Central difference
+# Attention: the sense of the derivatives is inversed!!
 
-#     # For boundaries, use forward or backward differences
-#     du_dx[:, 0] = (u[:, 1] - u[:, 0]) / dx  # Forward difference at the first column
-#     du_dx[:, -1] = (u[:, -1] - u[:, -2]) / dx  # Backward difference at the last column
-
-#     return du_dx
-
-# def derivative_y(u: np.array, dy=dy) -> np.array:
-#     du_dy = np.zeros_like(u)
-#     du_dy[1:-1, :] = (u[2:, :] - u[:-2, :]) / (2 * dy)  # Central difference for interior points
-
-#     # For boundaries, use forward or backward differences
-#     du_dy[0, :] = (u[1, :] - u[0, :]) / dy  # Forward difference at the first row
-#     du_dy[-1, :] = (u[-1, :] - u[-2, :]) / dy  # Backward difference at the last row
-
-#     return du_dy
-
-@jit(fastmath=True, nopython=True)
-def derivative_x_upwind(vel: np.array, u:np.array, dx=dx) -> np.array:
+#@jit(fastmath=True, nopython=True)
+def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     dvel_dx = np.zeros_like(vel)
 
     # For interior points, choose upwind direction based on the sign of u
     for i in range(1, vel.shape[1] - 1): # Skip the boundaries
-        dvel_dx[:, i] = np.where(u[:, i] >= 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
+        dvel_dx[:, i] = np.where(a[:, i] < 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
 
     # For boundaries, velse forward or backward differences
     dvel_dx[:, 0] = (vel[:, 1] - vel[:, 0]) / dx  # Forward difference at the first column
@@ -117,14 +97,14 @@ def derivative_x_upwind(vel: np.array, u:np.array, dx=dx) -> np.array:
 
     return dvel_dx
 
-@jit(fastmath=True, nopython=True)
-def derivative_y_upwind(vel: np.array, v:np.array, dy=dy) -> np.array:
+#@jit(fastmath=True, nopython=True)
+def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     dvel_dy = np.zeros_like(vel)
 
     # For interior points, choose upwind direction based on the sign of vel
-    for i in range(1, vel.shape[0]-1): 
+    for i in range(1, vel.shape[0] - 1): 
         # Differenciate between positive and negative flow
-        dvel_dy[i, :] = np.where(v[i, :] >= 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
+        dvel_dy[i, :] = np.where(a[i, :] < 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
 
     # For boundaries, use forward or backward differences
     dvel_dy[0, :] = (vel[1, :] - vel[0, :]) / dy  # Forward difference at the first row
@@ -133,7 +113,7 @@ def derivative_y_upwind(vel: np.array, v:np.array, dy=dy) -> np.array:
     return dvel_dy
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_x(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
     du_dx[:, 1:-1] = (u[:, 2:] - u[:, :-2]) / (2 * dx)  # Central difference
@@ -144,7 +124,7 @@ def derivative_x(u: np.array, dx=dx) -> np.array:
 
     return du_dx
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_y(u: np.array, dy=dy) -> np.array:
     du_dy = np.zeros_like(u)
     du_dy[1:-1, :] = (u[2:, :] - u[:-2, :]) / (
@@ -157,7 +137,7 @@ def derivative_y(u: np.array, dy=dy) -> np.array:
 
     return du_dy
 
-@njit(fastmath=True)
+#@jit(fastmath=True, nopython=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     d2u_dx2 = np.zeros_like(u)
@@ -165,7 +145,7 @@ def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     return d2u_dx2
 
-@njit(fastmath=True)
+#@jit(fastmath=True, nopython=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
 
     d2u_dy2 = np.zeros_like(u)
@@ -174,8 +154,8 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return d2u_dy2
 
 
-@njit(fastmath=True)
-def sor(P, f, tolerance=tolerance_sor, max_iter=max_iter, omega=omega):
+#@jit(fastmath=True, nopython=True)
+def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
     Optimized using Numba
@@ -448,7 +428,7 @@ u_history = []
 v_history = []
 
 
-@njit(fastmath=True)
+#@jit(fastmath=True, nopython=True)
 def system_evolution_kernel(u, v, P, Y_n2):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -465,7 +445,7 @@ def system_evolution_kernel(u, v, P, Y_n2):
     v[:, 0] = v[:, 1] # dv/dx = 0 at the left wall
     v[:, -1] = v[:, -2] # dv/dx = 0 at the right free limit
 
-    Y_n2[0, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
+    Y_n2[-1, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air (bottom slot)
     Y_n2[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
@@ -490,7 +470,7 @@ def system_evolution_kernel(u, v, P, Y_n2):
     v_star[:, 0] = v_star[:, 1] # dv/dx = 0 at the left wall
     v_star[:, -1] = v_star[:, -2] # dv/dx = 0 at the right free limit
 
-    Y_n2_star[0, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
+    Y_n2_star[-1, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air (bottom slot)
     Y_n2_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
@@ -514,7 +494,7 @@ def system_evolution_kernel(u, v, P, Y_n2):
     v_double_star[:, 0] = v_double_star[:, 1] # dv/dx = 0 at the left wall
     v_double_star[:, -1] = v_double_star[:, -2] # dv/dx = 0 at the right free limit
 
-    Y_n2_double_star[0, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
+    Y_n2_double_star[-1, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
     Y_n2_double_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2_double_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
@@ -524,7 +504,7 @@ def system_evolution_kernel(u, v, P, Y_n2):
     P[:, -1] = 0 # P = 0 at the right free limit
 
     # Step 3 (P is updated)
-    P = sor(P, f=rho / dt * (derivative_x(u_double_star) + derivative_y(v_double_star)))
+    P = sor(P, f=rho / dt * (np.gradient(u_double_star, dx, dy)[1] + np.gradient(v_double_star, dx, dy)[0]))
 
     P[:, 0] = P[:, 1] # dP/dx = 0 at the left wall
     P[0, :] = P[1, :] # dP/dy = 0 at the top wall
@@ -532,8 +512,8 @@ def system_evolution_kernel(u, v, P, Y_n2):
     P[:, -1] = 0 # P = 0 at the right free limit
    
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x_upwind(P, np.ones_like(P))
-    v_new = v_double_star - dt / rho * derivative_y_upwind(P, np.ones_like(P))
+    u_new = u_double_star - dt / rho * derivative_x(P)
+    v_new = v_double_star - dt / rho * derivative_y(P)
 
     # Boundary conditions for u_new, v_new
     u_new[:, 0] = 0
