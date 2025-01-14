@@ -3,9 +3,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from numba import jit
+from numba import njit, jit
 
-from pathlib import Path
 
 # We had a problem with the path of the other module
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -14,7 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # Constants #
 #############
 
-nb_points = 50
+nb_points = 40
 
 R = 8.314  # Ideal gas constant in J/(mol* K)
 
@@ -26,7 +25,7 @@ M_CH4 = 0.016042  # kg/mol
 
 dt = 1e-6
 
-final_time = 1e-3
+final_time = 1
 
 nb_timesteps = int(final_time / dt)
 
@@ -55,11 +54,13 @@ dy = Ly / (nb_points - 1)
 
 nu = 15e-6
 
-tolerance = 1e-6
+tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
+
+tolerance_sys = 1e-5 # Tolerance for the convergence of the whole system
 
 max_iter = 10000  # Maximum number of iterations for achieving convergence
 
-omega = 1.88  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
+omega = 1.2  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
 
 
 ##################
@@ -73,14 +74,34 @@ u = np.zeros((nb_points, nb_points))
 # Pressure field
 P = np.zeros((nb_points, nb_points))
 
-# Plotting an initial field
-# plt.imshow(np.where(u != np.nan, u, np.nan), origin="lower")
-# plt.colorbar()
-# plt.show()
+# Species field (nitrogen)
+Y_n2 = np.zeros((nb_points, nb_points))
+
 
 #################################################
 # Derivatives and second derivatives definition #
 #################################################
+
+# The sense of the derivatives is inversed!!
+# def derivative_x(u: np.array, dx=dx) -> np.array:
+#     du_dx = np.zeros_like(u)
+#     du_dx[:, 1:-1] = (u[:, 2:] - u[:, :-2]) / (2 * dx)  # Central difference
+
+#     # For boundaries, use forward or backward differences
+#     du_dx[:, 0] = (u[:, 1] - u[:, 0]) / dx  # Forward difference at the first column
+#     du_dx[:, -1] = (u[:, -1] - u[:, -2]) / dx  # Backward difference at the last column
+
+#     return du_dx
+
+# def derivative_y(u: np.array, dy=dy) -> np.array:
+#     du_dy = np.zeros_like(u)
+#     du_dy[1:-1, :] = (u[2:, :] - u[:-2, :]) / (2 * dy)  # Central difference for interior points
+
+#     # For boundaries, use forward or backward differences
+#     du_dy[0, :] = (u[1, :] - u[0, :]) / dy  # Forward difference at the first row
+#     du_dy[-1, :] = (u[-1, :] - u[-2, :]) / dy  # Backward difference at the last row
+
+#     return du_dy
 
 @jit(fastmath=True, nopython=True)
 def derivative_x_upwind(vel: np.array, u:np.array,dx=dx) -> np.array:
@@ -119,7 +140,6 @@ def derivative_y_upwind(vel: np.array, v:np.array, dy=dy) -> np.array:
     return dvel_dy
 
 
-# The sense of the derivatives is inversed!!
 @jit(fastmath=True, nopython=True)
 def derivative_x(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
@@ -144,38 +164,23 @@ def derivative_y(u: np.array, dy=dy) -> np.array:
 
     return du_dy
 
-@jit(fastmath=True, nopython=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     d2u_dx2 = np.zeros_like(u)
-    d2u_dx2[:, 1:-1] = (u[:, 2:] - 2 * u[:, 1:-1] + u[:, :-2]) / (dx**2)
+    d2u_dx2[:, 1:-1] = (u[:, 2:] - 2 * u[:, 1:-1] + u[:, :-2]) / (dx ** 2)
 
     return d2u_dx2
 
-@jit(fastmath=True, nopython=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
 
     d2u_dy2 = np.zeros_like(u)
-    d2u_dy2[1:-1, :] = (u[2:, :] - 2 * u[1:-1, :] + u[:-2, :]) / (dy**2)
+    d2u_dy2[1:-1, :] = (u[2:, :] - 2 * u[1:-1, :] + u[:-2, :]) / (dy ** 2)
 
     return d2u_dy2
 
-@jit(fastmath=True, nopython=True)
-def sor_kernel(P, P_old, laplacian_P, f, coef, omega, dx2_inv, dy2_inv, nb_points):
-    for i in range(1, nb_points - 1):
-        for j in range(1, nb_points - 1):
-            laplacian_P[i, j] = (P_old[i + 1, j] + P[i - 1, j]) * dx2_inv + (
-                P_old[i, j + 1] + P[i, j - 1]
-            ) * dy2_inv
-            # Update P using the SOR formula
-            P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (
-                laplacian_P[i, j] - f[i, j]
-            )
-    return P
 
-
-@jit(fastmath=True, nopython=True)
-def sor(P, f, tolerance=tolerance, max_iter=max_iter):
+@njit(fastmath=True)
+def sor(P, f, tolerance=tolerance_sor, max_iter=max_iter, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
     Optimized using Numba
@@ -190,37 +195,29 @@ def sor(P, f, tolerance=tolerance, max_iter=max_iter):
     Returns:
         np.array: Updated pressure field.
     """
-    dx2_inv = 1 / dx**2
-    dy2_inv = 1 / dy**2
-    coef = 2 * (dx2_inv + dy2_inv)
 
-    for it in range(max_iter):
+    coef = 2 * (1 / dx**2 + 1 / dy**2)
+
+    for _ in range(max_iter):
         P_old = P.copy()
         laplacian_P = P.copy()
-
-        P = sor_kernel(
-            P=P,
-            P_old=P_old,
-            laplacian_P=laplacian_P,
-            f=f,
-            coef=coef,
-            omega=omega,
-            dx2_inv=dx2_inv,
-            dy2_inv=dy2_inv,
-            nb_points=nb_points,
-        )
+        
+        for i in range(1, nb_points - 1):
+            for j in range(1, nb_points - 1):
+                laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
+                
+                # Update P using the SOR formula
+                P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+        
         # Compute the residual to check for convergence
-        residual = P - P_old
-        # residual = np.linalg.norm(P - P_old, ord=2)
-        # if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-        #     residual /= np.linalg.norm(P_old, ord=2)
+        residual = np.linalg.norm(P - P_old, ord=2)
+        if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+            residual /= np.linalg.norm(P_old, ord=2)
 
-        if np.linalg.norm(residual, ord=np.inf) <= tolerance:
-            #print(f"SOR converged after {it+1} iterations.")
-            return P
-    print("SOR did not converge within the maximum number of iterations.")
+        if residual < tolerance_sor:
+            break
+
     return P
-
 
 # SOR method without Numba (i.e. with the print statements)
 # def sor(P, f, tolerance=tolerance, max_iter=max_iter, omega=omega):
@@ -244,14 +241,14 @@ def sor(P, f, tolerance=tolerance, max_iter=max_iter):
 #     for iteration in range(max_iter):
 #         P_old = P.copy()
 #         laplacian_P = P.copy()
-
+        
 #         for i in range(1, nb_points - 1):
 #             for j in range(1, nb_points - 1):
 #                 laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
-
+                
 #                 # Update P using the SOR formula
 #                 P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
-
+        
 #         # Compute the residual to check for convergence
 #         residual = np.linalg.norm(P - P_old, ord=2)
 #         if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
@@ -269,7 +266,6 @@ def sor(P, f, tolerance=tolerance, max_iter=max_iter):
 ######################################################
 # Plotting and animating the flow and the velocities #
 ######################################################
-
 
 def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=None):
     """
@@ -336,7 +332,6 @@ def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=No
 
     plt.show()
 
-
 def animate_flow_evolution(
     u_history,
     v_history,
@@ -347,7 +342,7 @@ def animate_flow_evolution(
     L_coflow,
     interval=1500,
     skip_frames=2,
-    save_path=Path(__file__).parent / Path("navier_stokes_animation.gif"),
+    save_path='C:\\Users\\danie\\Desktop\\animation.gif',
 ):
     """
     Create a slower animation of the flow evolution over time, accounting for matrix indexing.
@@ -442,10 +437,11 @@ def animate_flow_evolution(
         fig, update, frames=len(frame_indices), interval=interval, blit=True
     )
 
-    # if save_path:
-    #     anim.save(save_path, writer="pillow")
+    if save_path:
+        anim.save(save_path, writer="pillow")
 
     plt.show()
+
 
 
 ##########################
@@ -456,165 +452,134 @@ def animate_flow_evolution(
 u_history = []
 v_history = []
 
-
-
-
-
-
-# Boundary conditions for the velocity field
-   
-    
-
 for it in tqdm(range(nb_timesteps)):
+
+    # Boundary conditions for the velocity field
     u[:, 0] = 0
     u[0, :] = 0
     u[-1, :] = 0
-    u[:, -1] = u[:, -2]  # du/dx = 0 at the right free limit
+    u[:, -1] = u[:, -2] # du/dx = 0 at the right free limit
 
-    v[0, :] = (
-        0  # For the top non-slipping wall (some of these values are modified just after)
-    )
-    v[-1, :] = 0  # For the bottom non-slipping wall
-    v[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = (
-        -U_coflow
-    )  # Speed at the top of the "coflow" region (Nitrogen)
-    v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = (
-        U_coflow  # Speed at the bottom of the "coflow" region (Nitrogen)
-    )
-    v[:, 0] = v[:, 1]  # dv/dx = 0 at the left wall
-    v[:, -1] = v[:, -2]  # dv/dx = 0 at the right free limit
-        
+    v[0, :] = 0 # For the top non-slipping wall (some of these values are modified just after)
+    v[-1, :] = 0 # For the bottom non-slipping wall
+    v[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot # Speed at the top of the "flow" region (Methane)
+    v[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow # Speed at the bottom of the "coflow" region (Nitrogen)
+    v[:, 0] = v[:, 1] # dv/dx = 0 at the left wall
+    v[:, -1] = v[:, -2] # dv/dx = 0 at the right free limit
+
+    Y_n2[0, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
+    Y_n2[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
+    Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
+
     # Step 1
-    u_star = u - dt * (u * derivative_x_upwind(u, u) + v * derivative_y_upwind(u, v))
-    v_star = v - dt * (u * derivative_x_upwind(v, u) + v * derivative_y_upwind(v, v))
+    u_star = u - dt * (u * derivative_x(u) + v * derivative_y(u))
+    v_star = v - dt * (u * derivative_x(v) + v * derivative_y(v))
+    # Species transport 
+    Y_n2_star = Y_n2 - dt * (u * derivative_x(Y_n2) + v * derivative_y(Y_n2))
 
     # Boundary conditions for u_star and v_star
     u_star[:, 0] = 0
     u_star[0, :] = 0
     u_star[-1, :] = 0
-    u_star[:, -1] = u_star[:, -2]  # du/dx = 0 at the right free limit
+    u_star[:, -1] = u_star[:, -2] # du/dx = 0 at the right free limit
 
-    v_star[0, :] = (
-        0  # For the top non-slipping wall (some of these values are modified just after)
-    )
-    v_star[-1, :] = 0  # For the bottom non-slipping wall
-    v_star[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v_star[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v_star[
-        0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_star[
-        -1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_star[:, 0] = v_star[:, 1]  # dv/dx = 0 at the left wall
-    v_star[:, -1] = v_star[:, -2]  # dv/dx = 0 at the right free limit
+    v_star[0, :] = 0 # For the top non-slipping wall (some of these values are modified just after)
+    v_star[-1, :] = 0 # For the bottom non-slipping wall
+    v_star[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot  # Speed at the top of the "flow" region (Methane)
+    v_star[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_star[:, 0] = v_star[:, 1] # dv/dx = 0 at the left wall
+    v_star[:, -1] = v_star[:, -2] # dv/dx = 0 at the right free limit
+
+    Y_n2_star[0, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
+    Y_n2_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
+    Y_n2_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
     # Step 2
-    u_double_star = u_star + dt * (
-        nu * (second_centered_x(u_star) + second_centered_y(u_star))
-    )
-    v_double_star = v_star + dt * (
-        nu * (second_centered_x(v_star) + second_centered_y(v_star))
-    )
+    u_double_star = u_star + dt * (nu * (second_centered_x(u_star) + second_centered_y(u_star)))
+    v_double_star = v_star + dt * (nu * (second_centered_x(v_star) + second_centered_y(v_star)))
+    Y_n2_double_star = Y_n2_star + dt * (nu * (second_centered_x(Y_n2_star) + second_centered_y(Y_n2_star)))
 
     # Boundary conditions for P, u_double_star, v_double_star
     u_double_star[:, 0] = 0
     u_double_star[0, :] = 0
     u_double_star[-1, :] = 0
-    u_double_star[:, -1] = u_double_star[:, -2]  # du/dx = 0 at the right free limit
+    u_double_star[:, -1] = u_double_star[:, -2] # du/dx = 0 at the right free limit
 
-    v_double_star[0, :] = (
-        0  # For the top non-slipping wall (some of these values are modified just after)
-    )
-    v_double_star[-1, :] = 0  # For the bottom non-slipping wall
-    v_double_star[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v_double_star[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v_double_star[
-        0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_double_star[
-        -1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_double_star[:, 0] = v_double_star[:, 1]  # dv/dx = 0 at the left wall
-    v_double_star[:, -1] = v_double_star[:, -2]  # dv/dx = 0 at the right free limit
+    v_double_star[0, :] = 0 # For the top non-slipping wall (some of these values are modified just after)
+    v_double_star[-1, :] = 0 # For the bottom non-slipping wall
+    v_double_star[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot  # Speed at the top of the "flow" region (Methane)
+    v_double_star[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v_double_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_double_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_double_star[:, 0] = v_double_star[:, 1] # dv/dx = 0 at the left wall
+    v_double_star[:, -1] = v_double_star[:, -2] # dv/dx = 0 at the right free limit
 
-    P[:, 0] = P[:, 1]  # dP/dx = 0 at the left wall
-    P[0, :] = P[1, :]  # dP/dy = 0 at the top wall
-    P[-1, :] = P[-2, :]  # dP/dy = 0 at the bottom wall
-    P[:, -1] = 0  # P = 0 at the right free limit
-    
+    Y_n2_double_star[0, 0 : int(L_slot / Lx * nb_points)] = 0.767 # Initial condition for the nitrogen in air
+    Y_n2_double_star[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
+    Y_n2_double_star[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
+
+
+    P[:, 0] = P[:, 1] # dP/dx = 0 at the left wall
+    P[0, :] = P[1, :] # dP/dy = 0 at the top wall
+    P[-1, :] = P[-2, :] # dP/dy = 0 at the bottom wall
+    P[:, -1] = 0 # P = 0 at the right free limit
 
     # Step 3 (P is updated)
-    P = sor(
-        P,
-        f=rho
-        / dt
-        * (derivative_x(u_double_star) + derivative_y(v_double_star)),
-    )
+    P = sor(P, f=rho / dt * (derivative_x(u_double_star) + derivative_y(v_double_star)))
 
-    P[:, 0] = P[:, 1]  # dP/dx = 0 at the left wall
-    P[0, :] = P[1, :]  # dP/dy = 0 at the top wall
-    P[-1, :] = P[-2, :]  # dP/dy = 0 at the bottom wall
-    P[:, -1] = 0  # P = 0 at the right free limit
+    P[:, 0] = P[:, 1] # dP/dx = 0 at the left wall
+    P[0, :] = P[1, :] # dP/dy = 0 at the top wall
+    P[-1, :] = P[-2, :] # dP/dy = 0 at the bottom wall
+    P[:, -1] = 0 # P = 0 at the right free limit
+   
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x_upwind(P, np.ones_like(P))  # negative coefficient
-    v_new = v_double_star - dt / rho * derivative_y_upwind(P, np.ones_like(P))  
+    u_new = u_double_star - dt / rho * derivative_x(P)
+    v_new = v_double_star - dt / rho * derivative_y(P)
+
     # Boundary conditions for u_new, v_new
     u_new[:, 0] = 0
     u_new[0, :] = 0
     u_new[-1, :] = 0
-    u_new[:, -1] = u_new[:, -2]  # du/dx = 0 at the right free limit
+    u_new[:, -1] = u_new[:, -2] # du/dx = 0 at the right free limit
 
-    v_new[0, :] = (
-        0  # For the top non-slipping wall (some of these values are modified just after)
-    )
-    v_new[-1, :] = 0  # For the bottom non-slipping wall
-    v_new[0, 0 : int(L_slot / Lx * nb_points)] = (
-        -U_slot
-    )  # Speed at the top of the "flow" region (Methane)
-    v_new[-1, 0 : int(L_slot / Lx * nb_points)] = (
-        U_slot  # Speed at the bottom of the "flow" region (Air)
-    )
-    v_new[
-        0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
-    v_new[
-        -1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)
-    ] = U_coflow
-    v_new[:, 0] = v_new[:, 1]  # dv/dx = 0 at the left wall
-    v_new[:, -1] = v_new[:, -2]  # dv/dx = 0 at the right free limit
+    v_new[0, :] = 0 # For the top non-slipping wall (some of these values are modified just after)
+    v_new[-1, :] = 0 # For the bottom non-slipping wall
+    v_new[0, 0 : int(L_slot / Lx * nb_points)] = -U_slot  # Speed at the top of the "flow" region (Methane)
+    v_new[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "flow" region (Air)
+    v_new[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
+    v_new[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow
+    v_new[:, 0] = v_new[:, 1] # dv/dx = 0 at the left wall
+    v_new[:, -1] = v_new[:, -2] # dv/dx = 0 at the right free limit
+
+    residual = np.linalg.norm(v - v_new, ord=2)
+    if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+        residual /= np.linalg.norm(v, ord=2)
+
+    if residual < tolerance_sys:
+        break
 
     # Updating of the new fields
     u = np.copy(u_new)
     v = np.copy(v_new)
+    Y_n2 = np.copy(Y_n2_double_star)
 
-    if it % 5 == 0:
-        u_history.append( u.copy())
-        v_history.append( v.copy())
+    if it % 1 == 0:
+        u_history.append(u.copy())
+        v_history.append(v.copy())
 
 
+plot_velocity_fields(u_history[0], v_history[0], Lx, Ly, nb_points, L_slot, L_coflow)
 
-#plot_velocity_fields(u_history[0], v_history[0], Lx, Ly, nb_points, L_slot, L_coflow)
+#animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
 
-animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
 
 
 # Once the u field is correctly advected, we calculate "a"
-strain_rate = np.abs(derivative_y(v))  # Since dv/dy = -du/dx
+strain_rate = np.abs(derivative_y(v))
 
 max_strain_rate = np.max(strain_rate)
 
