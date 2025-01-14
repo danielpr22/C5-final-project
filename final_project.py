@@ -25,7 +25,7 @@ M_air = 0.02895  # kg/mol
 
 M_CH4 = 0.016042  # kg/mol
 
-dt = 1e-3
+dt = 1e-6
 
 Lx = 2e-3
 
@@ -46,9 +46,6 @@ T_coflow = 300
 # Fluid density
 rho = 1.1614
 
-# Kinematic viscosity
-eta = 15e-6
-
 dx = Lx / (nb_points - 1)
 
 dy = Ly / (nb_points - 1)
@@ -57,7 +54,7 @@ nu = 15e-6
 
 tolerance = 1e-4
 
-max_iter = 100  # Maximum number of iterations
+max_iter = 10000  # Maximum number of iterations
 
 omega = 1.88  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
 
@@ -81,9 +78,10 @@ v[-1, 0 : int(L_slot / Lx * nb_points)] = U_slot  # Speed at the bottom of the "
 v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
 v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow
 
-plt.imshow(np.where(u != np.nan, u, np.nan), origin="lower")
-plt.colorbar()
-plt.show()
+# Plotting an initial field
+# plt.imshow(np.where(u != np.nan, u, np.nan), origin="lower")
+# plt.colorbar()
+# plt.show()
 
 #################################################
 # Derivatives and second derivatives definition #
