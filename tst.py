@@ -157,6 +157,7 @@ def sor(P, f, tolerance=tolerance, max_iter=max_iter, omega=omega):
 
     return P
 
+# SOR method without Numba (i.e. with the print statements)
 # def sor(P, f, tolerance=tolerance, max_iter=max_iter, omega=omega):
 #     """
 #     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
