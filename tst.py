@@ -3,7 +3,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from numba import njit, jit
+from numba import jit
 
 
 # We had a problem with the path of the other module
@@ -71,7 +71,7 @@ v = np.zeros((nb_points, nb_points))
 u = np.zeros((nb_points, nb_points))
 
 # Pressure field
-P = np.zeros((nb_points, nb_points))
+P = np.ones((nb_points, nb_points))
 
 # Species field (nitrogen)
 Y_n2 = np.zeros((nb_points, nb_points))
@@ -83,13 +83,13 @@ Y_n2 = np.zeros((nb_points, nb_points))
 
 # Attention: the sense of the derivatives is inversed!!
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     dvel_dx = np.zeros_like(vel)
 
     # For interior points, choose upwind direction based on the sign of u
     for i in range(1, vel.shape[1] - 1): # Skip the boundaries
-        dvel_dx[:, i] = np.where(a[:, i] < 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
+        dvel_dx[:, i] = np.where(a[:, i] >= 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
 
     # For boundaries, velse forward or backward differences
     dvel_dx[:, 0] = (vel[:, 1] - vel[:, 0]) / dx  # Forward difference at the first column
@@ -97,14 +97,15 @@ def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
 
     return dvel_dx
 
-#@jit(fastmath=True, nopython=True)
+
+@jit(fastmath=True, nopython=True)
 def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     dvel_dy = np.zeros_like(vel)
 
     # For interior points, choose upwind direction based on the sign of vel
     for i in range(1, vel.shape[0] - 1): 
         # Differenciate between positive and negative flow
-        dvel_dy[i, :] = np.where(a[i, :] < 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
+        dvel_dy[i, :] = np.where(a[i, :] >= 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
 
     # For boundaries, use forward or backward differences
     dvel_dy[0, :] = (vel[1, :] - vel[0, :]) / dy  # Forward difference at the first row
@@ -113,8 +114,8 @@ def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     return dvel_dy
 
 
-#@jit(fastmath=True, nopython=True)
-def derivative_x(u: np.array, dx=dx) -> np.array:
+@jit(fastmath=True, nopython=True)
+def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
     du_dx[:, 1:-1] = (u[:, 2:] - u[:, :-2]) / (2 * dx)  # Central difference
 
@@ -124,8 +125,9 @@ def derivative_x(u: np.array, dx=dx) -> np.array:
 
     return du_dx
 
-#@jit(fastmath=True, nopython=True)
-def derivative_y(u: np.array, dy=dy) -> np.array:
+
+@jit(fastmath=True, nopython=True)
+def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     du_dy = np.zeros_like(u)
     du_dy[1:-1, :] = (u[2:, :] - u[:-2, :]) / (
         2 * dy
@@ -137,7 +139,8 @@ def derivative_y(u: np.array, dy=dy) -> np.array:
 
     return du_dy
 
-#@jit(fastmath=True, nopython=True)
+
+@jit(fastmath=True, nopython=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     d2u_dx2 = np.zeros_like(u)
@@ -145,7 +148,8 @@ def second_centered_x(u: np.array, dx=dx) -> np.array:
 
     return d2u_dx2
 
-#@jit(fastmath=True, nopython=True)
+
+@jit(fastmath=True, nopython=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
 
     d2u_dy2 = np.zeros_like(u)
@@ -154,7 +158,7 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return d2u_dy2
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -182,7 +186,7 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
                 laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
                 
                 # Update P using the SOR formula
-                P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+                P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
         
         # Compute the residual to check for convergence
         residual = np.linalg.norm(P - P_old, ord=2)
@@ -426,9 +430,10 @@ def animate_flow_evolution(
 # Lists to store velocity fields at different timesteps
 u_history = []
 v_history = []
+strain_rate_history = []
+Y_n2_history = []
 
-
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def system_evolution_kernel(u, v, P, Y_n2):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -452,6 +457,7 @@ def system_evolution_kernel(u, v, P, Y_n2):
     # Step 1
     u_star = u - dt * (u * derivative_x_upwind(u, u) + v * derivative_y_upwind(u, v))
     v_star = v - dt * (u * derivative_x_upwind(v, u) + v * derivative_y_upwind(v, v))
+    
     # Species transport 
     Y_n2_star = Y_n2 - dt * (u * derivative_x_upwind(Y_n2, u) + v * derivative_y_upwind(Y_n2, v))
 
@@ -504,7 +510,7 @@ def system_evolution_kernel(u, v, P, Y_n2):
     P[:, -1] = 0 # P = 0 at the right free limit
 
     # Step 3 (P is updated)
-    P = sor(P, f=rho / dt * (np.gradient(u_double_star, dx, dy)[1] + np.gradient(v_double_star, dx, dy)[0]))
+    P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star) + derivative_y_centered(v_double_star)))
 
     P[:, 0] = P[:, 1] # dP/dx = 0 at the left wall
     P[0, :] = P[1, :] # dP/dy = 0 at the top wall
@@ -512,8 +518,8 @@ def system_evolution_kernel(u, v, P, Y_n2):
     P[:, -1] = 0 # P = 0 at the right free limit
    
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x(P)
-    v_new = v_double_star - dt / rho * derivative_y(P)
+    u_new = u_double_star - dt / rho * derivative_x_upwind(P, np.zeros_like(P))
+    v_new = v_double_star - dt / rho * derivative_y_upwind(P, np.zeros_like(P))
 
     # Boundary conditions for u_new, v_new
     u_new[:, 0] = 0
@@ -549,20 +555,46 @@ for it in tqdm(range(nb_timesteps)):
     v = np.copy(v_new)
     Y_n2 = np.copy(Y_n2_double_star)
 
+    # Strain rate
+    strain_rate = np.abs(derivative_y_centered(v))
+    max_strain_rate = np.max(strain_rate[:, 0])
+
+
     if it % 1 == 0:
         u_history.append(u.copy())
         v_history.append(v.copy())
+        strain_rate_history.append(max_strain_rate)
+        Y_n2_history.append(Y_n2)
+
+plt.plot(strain_rate_history)
+plt.title('Maximum strain rate on the left wall function of the number of iterations')
+plt.yscale('log')
+plt.show()
 
 
-plot_velocity_fields(u_history[0], v_history[0], Lx, Ly, nb_points, L_slot, L_coflow)
+plot_velocity_fields(u_history[-1], v_history[-1], Lx, Ly, nb_points, L_slot, L_coflow)
 
-#animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
+# Vector velocity field
+x = np.linspace(0, Lx, nb_points)
+y = np.linspace(Ly, 0, nb_points)
+X, Y = np.meshgrid(x, y)
+plt.quiver(X, Y, u_history[-1], v_history[-1], color="black")
+plt.xlim(0, Lx)
+plt.ylim(0, Ly)
+plt.xlabel("X")
+plt.ylabel("Y")
+plt.title("Vector Velocity Field")
+plt.show()
 
+animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
+
+closest_index_top = np.abs(Y_n2_history[-1][:, 0] - 0.9 * Y_n2_history[0][-1, 0]).argmin()
+closest_index_bottom = np.abs(Y_n2_history[-1][:, 0] - 0.1 * Y_n2_history[0][-1, 0]).argmin()
 
 
 # Once the u field is correctly advected, we calculate "a"
-strain_rate = np.abs(derivative_y(v))
+strain_rate = np.abs(derivative_y_centered(v))
 
-max_strain_rate = np.max(strain_rate)
+max_strain_rate = np.max(strain_rate[:, 0])
 
 print(f"Maximum strain rate (|∂v/∂y|) on left wall: {max_strain_rate:.6f} s^-1")
