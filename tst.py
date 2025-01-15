@@ -12,7 +12,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 #############
 # Constants #
 #############
-# hihiiiihihihi
+
 nb_points = 52
 
 R = 8.314  # Ideal gas constant in J/(mol* K)
@@ -117,11 +117,14 @@ def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
 @jit(fastmath=True, nopython=True)
 def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
-    du_dx[:, 1:-1] = (u[:, 2:] - u[:, :-2]) / (2 * dx)  # Central difference
+    #du_dx[:, 1:-1] = (u[:, 2:] - u[:, :-2]) / (2 * dx)  # Central difference
+    du_dx[:, :] = (u[:, 1:] - u[:, :-1]) / (2 * dx)
 
+    """
     # For boundaries, use forward or backward differences
     du_dx[:, 0] = (u[:, 1] - u[:, 0]) / dx  # Forward difference at the first column
     du_dx[:, -1] = (u[:, -1] - u[:, -2]) / dx  # Backward difference at the last column
+    """
 
     return du_dx
 
@@ -129,13 +132,12 @@ def derivative_x_centered(u: np.array, dx=dx) -> np.array:
 @jit(fastmath=True, nopython=True)
 def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     du_dy = np.zeros_like(u)
-    du_dy[1:-1, :] = (u[2:, :] - u[:-2, :]) / (
-        2 * dy
-    )  # Central difference for interior points
+    du_dy[:, :] = (u[1:, :] - u[:-1, :]) / (2 * dy)  # Central difference for interior points
 
-    # For boundaries, use forward or backward differences
-    du_dy[0, :] = (u[1, :] - u[0, :]) / dy  # Forward difference at the first row
-    du_dy[-1, :] = (u[-1, :] - u[-2, :]) / dy  # Backward difference at the last row
+
+    # # For boundaries, use forward or backward differences
+    # du_dy[0, :] = (u[1, :] - u[0, :]) / dy  # Forward difference at the first row
+    # du_dy[-1, :] = (u[-1, :] - u[-2, :]) / dy  # Backward difference at the last row
 
     return du_dy
 
@@ -455,11 +457,11 @@ def system_evolution_kernel(u, v, P, Y_n2):
     Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
     # Step 1
-    u_star = u - dt * (u * derivative_x_upwind(u, u) + v * derivative_y_upwind(u, v))
-    v_star = v - dt * (u * derivative_x_upwind(v, u) + v * derivative_y_upwind(v, v))
+    u_star = u - dt * (u * derivative_x_centered(u) + v * derivative_y_centered(u))
+    v_star = v - dt * (u * derivative_x_centered(v) + v * derivative_y_centered(v))
     
     # Species transport 
-    Y_n2_star = Y_n2 - dt * (u * derivative_x_upwind(Y_n2, u) + v * derivative_y_upwind(Y_n2, v))
+    Y_n2_star = Y_n2 - dt * (u * derivative_x_centered(Y_n2) + v * derivative_y_centered(Y_n2))
 
     # Boundary conditions for u_star and v_star
     u_star[:, 0] = 0
@@ -518,8 +520,8 @@ def system_evolution_kernel(u, v, P, Y_n2):
     P[:, -1] = 0 # P = 0 at the right free limit
    
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x_upwind(P, np.zeros_like(P))
-    v_new = v_double_star - dt / rho * derivative_y_upwind(P, np.zeros_like(P))
+    u_new = u_double_star - dt / rho * derivative_x_centered(P)
+    v_new = v_double_star - dt / rho * derivative_y_centered(P)
 
     # Boundary conditions for u_new, v_new
     u_new[:, 0] = 0
