@@ -16,51 +16,33 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 nb_points = 32
 
-R = 8.314  # Ideal gas constant in J/(mol* K)
+dt = 1e-7
 
-M_N2 = 0.02802  # kg/mol
-
-M_air = 0.02895  # kg/mol
-
-M_CH4 = 0.016042  # kg/mol
-
-dt = 1e-6
-
-final_time = 1
+final_time = 1e-3
 
 nb_timesteps = int(final_time / dt)
 
-Lx = 2e-3
+Lx, Ly = 2e-3, 2e-3
 
-Ly = 2e-3
-
-L_slot = 0.5e-3
-
-L_coflow = 0.5e-3
+L_slot, L_coflow= 0.5e-3, 0.5e-3
 
 U_slot = 1.0
 
-T_slot = 300
-
 U_coflow = 0.2
 
-T_coflow = 300
-
-rho = 1.1614 # Fluid density
+T_slot, T_coflow = 300, 300
 
 dx = Lx / (nb_points - 1)
 
 dy = Ly / (nb_points - 1)
 
-nu = 15e-6
-
 tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
 
-tolerance_sys = 1e-4 # Tolerance for the convergence of the whole system
+tolerance_sys = 1e-3 # Tolerance for the convergence of the whole system
 
 max_iter = 10000  # Maximum number of iterations for achieving convergence
 
-omega = 1.5  # Parameter for the Successive Overrelaxation Method (SOR), it has to be between 1 and 2
+omega = 1.5  # Parameter for the Successive Overrelaxation Method (SOR), it must be between 1 and 2
 
 
 ##################
@@ -77,8 +59,36 @@ u = np.zeros((nb_points, nb_points))
 # Pressure field
 P = np.zeros((nb_points, nb_points))
 
-# Species field (nitrogen)
+rho = 1.1614 # Fluid density
+nu = 15e-6 # Kinematic viscosity
+
+
+#############
+# Chemistry #
+#############
+
+A = 1.1e8
+T_a = 10000
+R = 8.314  # Ideal gas constant in J/(mol* K)
+
+W_N2 = 0.02802  # kg/mol
+W_O2 = 0.031999  # kg/mol
+W_CH4 = 0.016042  # kg/mol
+
+nu_ch4 = -1
+nu_o2 = -2
+nu_n2 = 0
+nu_h2o = 2
+nu_co2 = 1
+
+# Temperature field
+T = np.zeros((nb_points, nb_points))
+T[:, :] = 273 # Initially let's define a constant temperature field
+
+# Species fields
 Y_n2 = np.zeros((nb_points, nb_points))
+Y_o2 = np.zeros((nb_points, nb_points))
+Y_ch4 = np.zeros((nb_points, nb_points))
 
 
 #################################################
@@ -87,7 +97,7 @@ Y_n2 = np.zeros((nb_points, nb_points))
 
 # Attention: the sense of the derivatives is inversed!!
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     dvel_dx = np.zeros_like(vel)
 
@@ -98,7 +108,7 @@ def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     return dvel_dx
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     dvel_dy = np.zeros_like(vel)
 
@@ -110,7 +120,7 @@ def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     return dvel_dy
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
 
@@ -121,7 +131,7 @@ def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     return du_dx
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     du_dy = np.zeros_like(u)
 
@@ -132,7 +142,7 @@ def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     return du_dy
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
     d2u_dx2 = np.zeros_like(u)
 
@@ -145,7 +155,7 @@ def second_centered_x(u: np.array, dx=dx) -> np.array:
     return d2u_dx2
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
     d2u_dy2 = np.zeros_like(u)
 
@@ -158,7 +168,7 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return d2u_dy2
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -199,47 +209,47 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
     return P
 
 # SOR method without Numba (i.e. with the print statements)
-# def sor(P, f, tolerance=tolerance, max_iter=max_iter, omega=omega):
-#     """
-#     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
-#     Optimized using Numba
+def sor_no_numba(P, f, tolerance=tolerance_sor, max_iter=max_iter, omega=omega):
+    """
+    Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
+    Optimized using Numba
 
-#     Parameters:
-#         P (np.array): Initial guess for the pressure field.
-#         f (np.array): Right-hand side of the Poisson equation.
-#         tolerance (float): Convergence tolerance for the iterative method.
-#         max_iter (int): Maximum number of iterations.
-#         omega (float): Relaxation factor, between 1 and 2.
+    Parameters:
+        P (np.array): Initial guess for the pressure field.
+        f (np.array): Right-hand side of the Poisson equation.
+        tolerance (float): Convergence tolerance for the iterative method.
+        max_iter (int): Maximum number of iterations.
+        omega (float): Relaxation factor, between 1 and 2.
 
-#     Returns:
-#         np.array: Updated pressure field.
-#     """
+    Returns:
+        np.array: Updated pressure field.
+    """
 
-#     coef = 2 * (1 / dx**2 + 1 / dy**2)
+    coef = 2 * (1 / dx**2 + 1 / dy**2)
 
-#     for iteration in range(max_iter):
-#         P_old = P.copy()
-#         laplacian_P = P.copy()
+    for iteration in range(max_iter):
+        P_old = P.copy()
+        laplacian_P = P.copy()
         
-#         for i in range(1, nb_points - 1):
-#             for j in range(1, nb_points - 1):
-#                 laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
+        for i in range(1, nb_points - 1):
+            for j in range(1, nb_points - 1):
+                laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
                 
-#                 # Update P using the SOR formula
-#                 P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+                # Update P using the SOR formula
+                P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
         
-#         # Compute the residual to check for convergence
-#         residual = np.linalg.norm(P - P_old, ord=2)
-#         if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-#             residual /= np.linalg.norm(P_old, ord=2)
+        # Compute the residual to check for convergence
+        residual = np.linalg.norm(P - P_old, ord=2)
+        if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+            residual /= np.linalg.norm(P_old, ord=2)
 
-#         if residual < tolerance:
-#             print(f"SOR converged after {iteration + 1} iterations with residual {residual:.2e}.")
-#             break
-#     else:
-#         print(f"SOR did not converge after {max_iter} iterations. Residual: {residual:.2e}")
+        if residual < tolerance:
+            print(f"SOR converged after {iteration + 1} iterations with residual {residual:.2e}.")
+            break
+    else:
+        print(f"SOR did not converge after {max_iter} iterations. Residual: {residual:.2e}")
 
-#     return P
+    return P
 
 
 ######################################################
@@ -260,10 +270,6 @@ def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=No
         L_coflow (float): Length of the coflow region
         save_path (str, optional): Path to save the plots
     """
-    # Create coordinate meshgrid
-    x = np.linspace(0, Lx, nb_points)
-    y = np.linspace(Ly, 0, nb_points)  # Reversed for matrix indexing
-    X, Y = np.meshgrid(x, y, indexing='xy')
 
     # Create a figure with two subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
@@ -309,7 +315,15 @@ def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=No
     if save_path:
         plt.savefig(save_path)
 
-    plt.show()
+    plt.show(block=False)
+
+
+def plot_vector_field(u: np.array, v: np.array):
+    plt.quiver(X*1e3,Y*1e3,u,v,scale=10)
+    plt.title('Initial velocity field configuration')
+    plt.xlabel('Lx (mm)')
+    plt.ylabel('Ly (mm)')
+    plt.show(block=False)
 
 
 def animate_flow_evolution(
@@ -420,22 +434,11 @@ def animate_flow_evolution(
     if save_path:
         anim.save(save_path, writer="pillow")
 
-    plt.show()
+    plt.show(block=False)
 
 
-
-##########################
-# Fractional-step method #
-##########################
-
-# Lists to store velocity fields at different timesteps
-u_history = []
-v_history = []
-strain_rate_history = []
-Y_n2_history = []
-
-@jit(fastmath=True, nopython=True)
-def boundary_conditions(u, v, Y_n2):
+#@jit(fastmath=True, nopython=True)
+def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
     u[:, 1] = 0 # Left slipping wall
@@ -457,51 +460,66 @@ def boundary_conditions(u, v, Y_n2):
     Y_n2[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
 
-    return u, v, Y_n2
+    Y_o2[-1, 1 : int(L_slot / Lx * nb_points) + 1] = 0.233 # Initial condition for the oxigen in air (bottom slot)
 
-u, v, Y_n2 = boundary_conditions(u, v, Y_n2)
+    Y_ch4[0, 1 : int(L_slot / Lx * nb_points) + 1] = 1
 
-@jit(fastmath=True, nopython=True)
-def system_evolution_kernel(u, v, P, Y_n2):
+    return u, v, Y_n2, Y_o2, Y_ch4
+
+
+#@jit(fastmath=True, nopython=True)
+def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
+    """The advection terms are solved following central differences, and the diffusion terms
+    following second-order central differences
+    """
+    Y_k_updated = np.zeros_like(Y_k)
+    derivative_x = derivative_x_centered(Y_k)
+    derivative_y = derivative_y_centered(Y_k)
+    second_derivative_x = second_centered_x(Y_k)
+    second_derivative_y = second_centered_y(Y_k)
+
+    for i in (1, nb_points-1): 
+        for j in (1, nb_points-1):
+            Y_k_updated[i, j] = Y_k[i, j] - dt * (u[i, j] * derivative_x[i,j] + v[i, j] * derivative_y[i, j]) + dt * nu * (second_derivative_x[i, j] + second_derivative_y[i, j]) + dt * source_term[i, j]
+
+    return Y_k_updated
+
+##########################
+# Fractional-step method #
+##########################
+
+#@jit(fastmath=True, nopython=True)
+def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
     
-    #u, v, Y_n2 = boundary_conditions(u, v, Y_n2)
-
     # Step 1
-    u_star = u + dt * (u * derivative_x_centered(u) + v * derivative_y_centered(u)) + nu * dt * (second_centered_x(u) + second_centered_y(u))
-    v_star = v + dt * (u * derivative_x_centered(v) + v * derivative_y_centered(v)) + nu * dt * (second_centered_x(v) + second_centered_y(v))
+    u_star = u - dt * (u * derivative_x_centered(u) + v * derivative_y_centered(u))
+    v_star = v - dt * (u * derivative_x_centered(v) + v * derivative_y_centered(v))
     
     # Species transport 
-    Y_n2_star = Y_n2 - dt * (u * derivative_x_centered(Y_n2) + v * derivative_y_centered(Y_n2))
+    concentration_ch4 = rho / W_CH4 * Y_ch4
+    concentration_o2 = rho / W_O2 * Y_o2
+    Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
 
-    #u_star, v_star, Y_n2_star = boundary_conditions(u_star, v_star, Y_n2_star)
+    Y_n2_new = update_Y_k(Y_n2, u, v, source_term = nu_n2 / rho * W_N2 * Q)
+
+    Y_o2_new = update_Y_k(Y_o2, u, v, source_term = nu_o2 / rho * W_O2 * Q)
+
+    Y_ch4_new = update_Y_k(Y_ch4, u, v, source_term = nu_ch4 / rho * W_CH4 * Q)
+
 
     # Step 2
     u_double_star = u_star + dt * (nu * (second_centered_x(u_star) + second_centered_y(u_star)))
     v_double_star = v_star + dt * (nu * (second_centered_x(v_star) + second_centered_y(v_star)))
-    Y_n2_double_star = Y_n2_star + dt * (nu * (second_centered_x(Y_n2_star) + second_centered_y(Y_n2_star)))
 
-    #u_double_star, v_double_star, Y_n2_double_star = boundary_conditions(u_double_star, v_double_star, Y_n2_double_star)
-
-    # P[:, 0] = 0
-    # P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-    # P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
-    # P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-    # P[:, -1] = 0 # P = 0 at the right free limit
 
     # Step 3 (P is updated)
     P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star) + derivative_y_centered(v_double_star)))
 
-    # P[:, 0] = 0
-    # P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-    # P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
-    # P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-    # P[:, -1] = 0 # P = 0 at the right free limit
-   
     # Step 4
     u_new = u_double_star - dt / rho * derivative_x_centered(P)
     v_new = v_double_star - dt / rho * derivative_y_centered(P)
 
-    u_new, v_new, Y_n2_double_star = boundary_conditions(u_new, v_new, Y_n2_double_star)
+    u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new)
 
     P[:, 0] = 0
     P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
@@ -509,72 +527,117 @@ def system_evolution_kernel(u, v, P, Y_n2):
     P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
     P[:, -1] = 0 # P = 0 at the right free limit
 
-    return u_new, v_new, P, Y_n2_double_star
+    return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
 
-# Plotting the initial velocity field
-u, v, Y_n2 = boundary_conditions(u, v, Y_n2)
+#######################################
+# Plotting the initial velocity field #
+#######################################
 
-plt.quiver(X*1e3,Y*1e3,u,v,scale=10)
-plt.title('Initial velocity field configuration')
-plt.xlabel('Lx (mm)')
-plt.ylabel('Ly (mm)')
+# Lists to store velocity fields at different timesteps
+u_history = []
+v_history = []
+strain_rate_history = []
+Y_n2_history = []
+Y_o2_history = []
+Y_ch4_history = []
 
-plt.show()
+u, v, Y_n2, Y_o2, Y_ch4 = boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4)
 
+plot_vector_field(u, v)
 
 for it in tqdm(range(nb_timesteps)):
 
-    u_new, v_new, P, Y_n2_double_star = system_evolution_kernel(u, v, P, Y_n2)
+    u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new = system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4)
 
-    residual = np.linalg.norm(v - v_new, ord=2)
-    if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-        residual /= np.linalg.norm(v, ord=2)
+    # residual = np.linalg.norm(v - v_new, ord=2)
+    # if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+    #     residual /= np.linalg.norm(v, ord=2)
 
-    if residual < tolerance_sys:
-        break
+    # if residual < tolerance_sys:
+    #     break
 
     # Updating of the new fields
     u = np.copy(u_new)
     v = np.copy(v_new)
-    Y_n2 = np.copy(Y_n2_double_star)
+    Y_n2 = np.copy(Y_n2_new)
+    Y_o2 = np.copy(Y_o2_new)
+    Y_ch4 = np.copy(Y_ch4_new)
 
     # Strain rate
     strain_rate = np.abs(derivative_y_centered(v))
     max_strain_rate = np.max(strain_rate[:, 1])
 
-
     if it % 1 == 0:
         u_history.append(u.copy())
         v_history.append(v.copy())
-        strain_rate_history.append(max_strain_rate)
-        Y_n2_history.append(Y_n2)
+        strain_rate_history.append(max_strain_rate.copy())
+        Y_n2_history.append(Y_n2.copy())
+        Y_o2_history.append(Y_o2.copy())
+        Y_ch4_history.append(Y_ch4.copy())
 
+
+#########################
+# Strain rate over time #
+#########################
 plt.plot(strain_rate_history)
 plt.title('Maximum strain rate on the left wall function of the number of iterations')
 plt.yscale('log')
-plt.show()
+plt.show(block=False)
 
 
-plot_velocity_fields(u_history[-1], v_history[-1], Lx, Ly, nb_points, L_slot, L_coflow)
+########################
+# Final pressure field #
+########################
 
-# Vector velocity field
+plt.figure(figsize=(6, 5))
+plt.imshow(-P, cmap='viridis')  # Display the data as an image
+plt.colorbar(label='Value')  # Add a colorbar with a label
+plt.title('Pressure field')  # Add a title
+plt.xlabel('X-axis')  # Label for the x-axis
+plt.ylabel('Y-axis')  # Label for the y-axis
+plt.show(block=False)
+
+
+#####################################
+# Final velocity fields (magnitude) #
+#####################################
+
+plot_velocity_fields(-u_history[-1], v_history[-1], Lx, Ly, nb_points, L_slot, L_coflow)
+
+
+#####################################
+# Final velocity fields (direction) #
+#####################################
 x = np.linspace(0, Lx, nb_points)
 y = np.linspace(Ly, 0, nb_points)
 X, Y = np.meshgrid(x, y,indexing='xy')
-plt.quiver(X, Y, u_history[-1], v_history[-1], color="black")
+plt.quiver(X, Y, -u_history[-1], v_history[-1], color="black")
 plt.xlim(0, Lx)
 plt.ylim(0, Ly)
 plt.xlabel("X")
 plt.ylabel("Y")
 plt.title("Vector Velocity Field")
-plt.show()
+plt.show(block=False)
 
-animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
+
+##############################
+# Final species distribution #
+##############################
+
+plt.figure(figsize=(6, 5))
+plt.imshow(Y_o2_history[-1], cmap='viridis')  # Display the data as an image
+plt.colorbar(label='Value')  # Add a colorbar with a label
+plt.title('Scalar Array with Colorbar')  # Add a title
+plt.xlabel('X-axis')  # Label for the x-axis
+plt.ylabel('Y-axis')  # Label for the y-axis
+plt.show(block=False)
+
+#animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
 
 closest_index_top = np.abs(Y_n2_history[-1][:, 0] - 0.9 * Y_n2_history[0][-1, 0]).argmin()
 closest_index_bottom = np.abs(Y_n2_history[-1][:, 0] - 0.1 * Y_n2_history[0][-1, 0]).argmin()
-
+length_diffusion = -closest_index_top / nb_points * Lx + closest_index_bottom / nb_points * Lx
 
 # Once the u field is correctly advected, we calculate "a"
 strain_rate = np.abs(derivative_y_centered(v))
