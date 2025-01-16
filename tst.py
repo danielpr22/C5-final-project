@@ -16,7 +16,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 nb_points = 32
 
-dt = 1e-7
+dt = 1e-6
 
 final_time = 1e-3
 
@@ -97,7 +97,7 @@ Y_ch4 = np.zeros((nb_points, nb_points))
 
 # Attention: the sense of the derivatives is inversed!!
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     dvel_dx = np.zeros_like(vel)
 
@@ -108,7 +108,7 @@ def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     return dvel_dx
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     dvel_dy = np.zeros_like(vel)
 
@@ -120,7 +120,7 @@ def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     return dvel_dy
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
 
@@ -131,7 +131,7 @@ def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     return du_dx
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     du_dy = np.zeros_like(u)
 
@@ -142,7 +142,7 @@ def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     return du_dy
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
     d2u_dx2 = np.zeros_like(u)
 
@@ -155,7 +155,7 @@ def second_centered_x(u: np.array, dx=dx) -> np.array:
     return d2u_dx2
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
     d2u_dy2 = np.zeros_like(u)
 
@@ -168,7 +168,7 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return d2u_dy2
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -236,7 +236,13 @@ def sor_no_numba(P, f, tolerance=tolerance_sor, max_iter=max_iter, omega=omega):
                 laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
                 
                 # Update P using the SOR formula
-                P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+                P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+
+        P[:, 0] = 0
+        P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
+        P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
+        P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
+        P[:, -1] = 0 # P = 0 at the right free limit
         
         # Compute the residual to check for convergence
         residual = np.linalg.norm(P - P_old, ord=2)
@@ -315,7 +321,9 @@ def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=No
     if save_path:
         plt.savefig(save_path)
 
-    plt.show(block=False)
+    
+    
+    plt.show()
 
 
 def plot_vector_field(u: np.array, v: np.array):
@@ -323,7 +331,8 @@ def plot_vector_field(u: np.array, v: np.array):
     plt.title('Initial velocity field configuration')
     plt.xlabel('Lx (mm)')
     plt.ylabel('Ly (mm)')
-    plt.show(block=False)
+    
+    plt.show()
 
 
 def animate_flow_evolution(
@@ -433,11 +442,12 @@ def animate_flow_evolution(
 
     if save_path:
         anim.save(save_path, writer="pillow")
+    
+    
+    plt.show()
 
-    plt.show(block=False)
 
-
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -467,7 +477,7 @@ def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
     return u, v, Y_n2, Y_o2, Y_ch4
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
     """The advection terms are solved following central differences, and the diffusion terms
     following second-order central differences
@@ -488,7 +498,7 @@ def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
 # Fractional-step method #
 ##########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
     
     # Step 1
@@ -583,7 +593,8 @@ for it in tqdm(range(nb_timesteps)):
 plt.plot(strain_rate_history)
 plt.title('Maximum strain rate on the left wall function of the number of iterations')
 plt.yscale('log')
-plt.show(block=False)
+
+plt.show()
 
 
 ########################
@@ -596,7 +607,8 @@ plt.colorbar(label='Value')  # Add a colorbar with a label
 plt.title('Pressure field')  # Add a title
 plt.xlabel('X-axis')  # Label for the x-axis
 plt.ylabel('Y-axis')  # Label for the y-axis
-plt.show(block=False)
+
+plt.show()
 
 
 #####################################
@@ -618,7 +630,8 @@ plt.ylim(0, Ly)
 plt.xlabel("X")
 plt.ylabel("Y")
 plt.title("Vector Velocity Field")
-plt.show(block=False)
+
+plt.show()
 
 
 ##############################
@@ -631,7 +644,8 @@ plt.colorbar(label='Value')  # Add a colorbar with a label
 plt.title('Scalar Array with Colorbar')  # Add a title
 plt.xlabel('X-axis')  # Label for the x-axis
 plt.ylabel('Y-axis')  # Label for the y-axis
-plt.show(block=False)
+
+plt.show()
 
 #animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
 
