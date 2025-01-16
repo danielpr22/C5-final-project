@@ -196,7 +196,13 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
                 laplacian_P[i, j] = (P[i+1, j] + P[i-1, j]) / dx**2 + (P[i, j+1] + P[i, j-1]) / dy**2
                 
                 # Update P using the SOR formula
-                P[i, j] = (1 - omega) * P[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+                P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+
+        P[:, 0] = 0
+        P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
+        P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
+        P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
+        P[:, -1] = 0 # P = 0 at the right free limit
         
         # Compute the residual to check for convergence
         residual = np.linalg.norm(P - P_old, ord=2)
@@ -237,12 +243,6 @@ def sor_no_numba(P, f, tolerance=tolerance_sor, max_iter=max_iter, omega=omega):
                 
                 # Update P using the SOR formula
                 P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
-
-        P[:, 0] = 0
-        P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-        P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
-        P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-        P[:, -1] = 0 # P = 0 at the right free limit
         
         # Compute the residual to check for convergence
         residual = np.linalg.norm(P - P_old, ord=2)
