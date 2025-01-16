@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # Constants #
 #############
 
-nb_points = 64
+nb_points = 32
 
 R = 8.314  # Ideal gas constant in J/(mol* K)
 
@@ -93,7 +93,7 @@ def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
 
     # For interior points, choose upwind direction based on the sign of u
     for i in range(1, vel.shape[1] - 1): # Skip the boundaries
-        dvel_dx[:, i] = np.where(a[:, i] >= 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
+        dvel_dx[:, i] = np.where(a[:, i] > 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
 
     return dvel_dx
 
@@ -105,7 +105,7 @@ def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     # For interior points, choose upwind direction based on the sign of vel
     for i in range(1, vel.shape[0] - 1): 
         # Differenciate between positive and negative flow
-        dvel_dy[i, :] = np.where(a[i, :] >= 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
+        dvel_dy[i, :] = np.where(a[i, :] > 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
 
     return dvel_dy
 
@@ -127,7 +127,7 @@ def derivative_y_centered(u: np.array, dy=dy) -> np.array:
 
     for i in range(1, nb_points - 1):
         for j in range(1, nb_points - 1):
-            du_dy[i, j] = (u[i+1, j] - u[i-1, j]) / (2 * dy)  # Central difference for interior points
+            du_dy[i, j] = (u[i+1, j] - u[i-1, j]) / (2 * dy)  # Central difference
 
     return du_dy
 
@@ -438,16 +438,18 @@ Y_n2_history = []
 def boundary_conditions(u, v, Y_n2):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
-    u[0, :] = 0
-    u[-1, :] = 0
+    u[:, 1] = 0 # Left slipping wall
+    u[0, :] = 0 # Top non-slipping wall
+    u[-1, :] = 0 # Bottom non-slipping wall
     u[:, -1] = u[:, -2] # du/dx = 0 at the right free limit
 
-    v[0, :] = 0 # For the top non-slipping wall (some of these values are modified just after)
-    v[-1, :] = 0 # For the bottom non-slipping wall
+    v[:, 0] = 0 # Left wall
     v[0, 1 : int(L_slot / Lx * nb_points) + 1] = -U_slot # Speed at the top of the "flow" region (Methane)
     v[-1, 1 : int(L_slot / Lx * nb_points) + 1] = U_slot  # Speed at the bottom of the "flow" region (Air)
     v[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = -U_coflow  # Speed at the top of the "coflow" region (Nitrogen)
     v[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = U_coflow # Speed at the bottom of the "coflow" region (Nitrogen)
+    v[0, int((L_slot + L_coflow) / Lx * nb_points) : nb_points] = 0 # For the top non-slipping wall
+    v[-1, int((L_slot + L_coflow) / Lx * nb_points) : nb_points] = 0  # For the bottom non-slipping wall 
     v[:, 1] = v[:, 2] # dv/dx = 0 at the left wall
     v[:, -1] = v[:, -2] # dv/dx = 0 at the right free limit
 
@@ -464,11 +466,11 @@ def system_evolution_kernel(u, v, P, Y_n2):
     u, v, Y_n2 = boundary_conditions(u, v, Y_n2)
 
     # Step 1
-    u_star = u - dt * (u * derivative_x_upwind(u, u) + v * derivative_y_upwind(u, v))
-    v_star = v - dt * (u * derivative_x_upwind(v, u) + v * derivative_y_upwind(v, v))
+    u_star = u - dt * (u * derivative_x_centered(u) + v * derivative_y_centered(u))
+    v_star = v - dt * (u * derivative_x_centered(v) + v * derivative_y_centered(v))
     
     # Species transport 
-    Y_n2_star = Y_n2 - dt * (u * derivative_x_upwind(Y_n2, u) + v * derivative_y_upwind(Y_n2, v))
+    Y_n2_star = Y_n2 - dt * (u * derivative_x_centered(Y_n2) + v * derivative_y_centered(Y_n2))
 
     u_star, v_star, Y_n2_star = boundary_conditions(u_star, v_star, Y_n2_star)
 
@@ -479,22 +481,24 @@ def system_evolution_kernel(u, v, P, Y_n2):
 
     u_double_star, v_double_star, Y_n2_double_star = boundary_conditions(u_double_star, v_double_star, Y_n2_double_star)
 
+    P[:, 0] = 0
     P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-    P[0, :] = P[1, :] # dP/dy = 0 at the top wall
-    P[-1, :] = P[-2, :] # dP/dy = 0 at the bottom wall
+    P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
+    P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
     P[:, -1] = 0 # P = 0 at the right free limit
 
     # Step 3 (P is updated)
     P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star) + derivative_y_centered(v_double_star)))
 
+    P[:, 0] = 0
     P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-    P[0, :] = P[1, :] # dP/dy = 0 at the top wall
-    P[-1, :] = P[-2, :] # dP/dy = 0 at the bottom wall
+    P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
+    P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
     P[:, -1] = 0 # P = 0 at the right free limit
    
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x_upwind(P, np.ones_like(P))
-    v_new = v_double_star - dt / rho * derivative_y_upwind(P, np.ones_like(P))
+    u_new = u_double_star - dt / rho * derivative_x_centered(P)
+    v_new = v_double_star - dt / rho * derivative_y_centered(P)
 
     u_new, v_new, Y_n2_double_star = boundary_conditions(u_new, v_new, Y_n2_double_star)
 
