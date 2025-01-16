@@ -18,7 +18,7 @@ nb_points = 32
 
 dt = 1e-6
 
-final_time = 1
+final_time = 1e-2
 
 nb_timesteps = int(final_time / dt)
 
@@ -496,7 +496,107 @@ def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
 
 
 @jit(fastmath=True, nopython=True)
-def rk4_step(Y_k, u, v, source_term, dx, dy, dt):
+def compute_rhs_first(u):
+    derivative_x = derivative_x_centered(u)
+    derivative_y = derivative_y_centered(u)
+
+    rhs = (
+        -u * derivative_x - v * derivative_y
+    )
+    return rhs
+
+
+@jit(fastmath=True, nopython=True)
+def rk4_first_step_frac(u : np.array, dt=dt):
+    
+    k1 = dt * compute_rhs_first(u)
+    k2 = dt * compute_rhs_first(u + 0.5 * k1)
+    k3 = dt * compute_rhs_first(u + 0.5 * k2)
+    k4 = dt * compute_rhs_first(u + k3)
+
+    return u + (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
+@jit(fastmath=True, nopython=True)
+def compute_rhs_second(u):
+    second_derivative_x = second_centered_x(u)
+    second_derivative_y = second_centered_y(u)
+
+    rhs = (
+        nu * (second_derivative_x + second_derivative_y)
+    )
+    return rhs
+
+@jit(fastmath=True, nopython=True)
+def rk4_second_step_frac(u : np.array, dt=dt):
+    
+    k1 = dt * compute_rhs_second(u)
+    k2 = dt * compute_rhs_second(u + 0.5 * k1)
+    k3 = dt * compute_rhs_second(u + 0.5 * k2)
+    k4 = dt * compute_rhs_second(u + k3)
+
+    return u + (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
+@jit(fastmath=True, nopython=True)
+def compute_rhs_u(P):
+    derivative_x = derivative_x_centered(P)
+
+    rhs = (
+        -1 / rho * derivative_x
+    )
+    return rhs
+
+@jit(fastmath=True, nopython=True)
+def rk4_fourth_step_frac_u(P : np.array, dt = dt):
+
+    k1 = dt * compute_rhs_u(P)
+    k2 = dt * compute_rhs_u(P + 0.5 * k1)
+    k3 = dt * compute_rhs_u(P + 0.5 * k2)
+    k4 = dt * compute_rhs_u(P + k3)
+
+    return P + (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
+@jit(fastmath=True, nopython=True)
+def compute_rhs_v(P):
+    derivative_y = derivative_y_centered(P)
+
+    rhs = (
+        -1 / rho * derivative_y
+    )
+    return rhs
+
+
+@jit(fastmath=True, nopython=True)
+def rk4_fourth_step_frac_v(P : np.array, dt = dt):
+    
+    k1 = dt * compute_rhs_v(P)
+    k2 = dt * compute_rhs_v(P + 0.5 * k1)
+    k3 = dt * compute_rhs_v(P + 0.5 * k2)
+    k4 = dt * compute_rhs_v(P + k3)
+
+    return P + (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
+
+@jit(fastmath=True, nopython=True)
+def compute_rhs_Y_k(Y_k, source_term):
+    derivative_x = derivative_x_centered(Y_k, dx)
+    derivative_y = derivative_y_centered(Y_k, dy)
+    second_derivative_x = second_centered_x(Y_k, dx)
+    second_derivative_y = second_centered_y(Y_k, dy)
+
+    rhs = (
+        -u * derivative_x
+        - v * derivative_y
+        + nu * (second_derivative_x + second_derivative_y)
+        + source_term
+    )
+    return rhs
+
+@jit(fastmath=True, nopython=True)
+def rk4_step_Y_k(Y_k, source_term, dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
 
@@ -509,24 +609,11 @@ def rk4_step(Y_k, u, v, source_term, dx, dy, dt):
     Returns:
         np.array: Updated scalar field after one RK4 step.
     """
-    def compute_rhs(Y_k):
-        derivative_x = derivative_x_centered(Y_k, dx)
-        derivative_y = derivative_y_centered(Y_k, dy)
-        second_derivative_x = second_centered_x(Y_k, dx)
-        second_derivative_y = second_centered_y(Y_k, dy)
 
-        rhs = (
-            -u * derivative_x
-            - v * derivative_y
-            + nu * (second_derivative_x + second_derivative_y)
-            + source_term
-        )
-        return rhs
-
-    k1 = dt * compute_rhs(Y_k)
-    k2 = dt * compute_rhs(Y_k + 0.5 * k1)
-    k3 = dt * compute_rhs(Y_k + 0.5 * k2)
-    k4 = dt * compute_rhs(Y_k + k3)
+    k1 = dt * compute_rhs_Y_k(Y_k, source_term)
+    k2 = dt * compute_rhs_Y_k(Y_k + 0.5 * k1, source_term)
+    k3 = dt * compute_rhs_Y_k(Y_k + 0.5 * k2, source_term)
+    k4 = dt * compute_rhs_Y_k(Y_k + k3, source_term)
 
     return Y_k + (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
@@ -575,32 +662,31 @@ def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
 
     return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
-
 @jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
     # Step 1
-    u_star = u - dt * (u * derivative_x_centered(u) + v * derivative_y_centered(u))
-    v_star = v - dt * (u * derivative_x_centered(v) + v * derivative_y_centered(v))
+    u_star = rk4_first_step_frac(u)
+    v_star = rk4_first_step_frac(v)
 
     # Species transport (RK4-based update)
     concentration_ch4 = rho / W_CH4 * Y_ch4
     concentration_o2 = rho / W_O2 * Y_o2
     Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
 
-    Y_n2_new = rk4_step(Y_n2, u, v, source_term=nu_n2 / rho * W_N2 * Q, dx=dx, dy=dy, dt=dt)
-    Y_o2_new = rk4_step(Y_o2, u, v, source_term=nu_o2 / rho * W_O2 * Q, dx=dx, dy=dy, dt=dt)
-    Y_ch4_new = rk4_step(Y_ch4, u, v, source_term=nu_ch4 / rho * W_CH4 * Q, dx=dx, dy=dy, dt=dt)
+    Y_n2_new = rk4_step_Y_k(Y_n2, u, v, source_term=nu_n2 / rho * W_N2 * Q, dx=dx, dy=dy, dt=dt)
+    Y_o2_new = rk4_step_Y_k(Y_o2, u, v, source_term=nu_o2 / rho * W_O2 * Q, dx=dx, dy=dy, dt=dt)
+    Y_ch4_new = rk4_step_Y_k(Y_ch4, u, v, source_term=nu_ch4 / rho * W_CH4 * Q, dx=dx, dy=dy, dt=dt)
 
     # Step 2
-    u_double_star = u_star + dt * (nu * (second_centered_x(u_star, dx) + second_centered_y(u_star, dy)))
-    v_double_star = v_star + dt * (nu * (second_centered_x(v_star, dx) + second_centered_y(v_star, dy)))
+    u_double_star = rk4_second_step_frac(u_star)
+    v_double_star = rk4_second_step_frac(v_star)
 
     # Step 3 (P is updated)
-    P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star, dx) + derivative_y_centered(v_double_star, dy)))
+    P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star) + derivative_y_centered(v_double_star)))
 
     # Step 4
-    u_new = u_double_star - dt / rho * derivative_x_centered(P, dx)
-    v_new = v_double_star - dt / rho * derivative_y_centered(P, dy)
+    u_new = rk4_fourth_step_frac_u(P)
+    v_new = rk4_fourth_step_frac_v(P)
 
     # Boundary conditions
     u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new)
@@ -614,7 +700,7 @@ def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
     return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
 @jit(fastmath=True, nopython=True)
-def compute_rhs_u(u, v, nu, dx, dy):
+def compute_rhs_u_field(u, v, nu, dx, dy):
     """
     Compute the RHS of the advection-diffusion equation for u.
     """
@@ -625,7 +711,7 @@ def compute_rhs_u(u, v, nu, dx, dy):
     return -(adv_x + adv_y) + (diff_x + diff_y)
 
 @jit(fastmath=True, nopython=True)
-def compute_rhs_v(u, v, nu, dx, dy):
+def compute_rhs_v_field(u, v, nu=nu, dx=dx, dy=dy):
     """
     Compute the RHS of the advection-diffusion equation for v.
     """
@@ -641,17 +727,17 @@ def rk4_velocity(u, v, nu, dx, dy, dt):
     Perform a single RK4 time step for the velocity fields u and v.
     """
     # RK4 for u
-    k1_u = dt * compute_rhs_u(u, v, nu, dx, dy)
-    k2_u = dt * compute_rhs_u(u + 0.5 * k1_u, v, nu, dx, dy)
-    k3_u = dt * compute_rhs_u(u + 0.5 * k2_u, v, nu, dx, dy)
-    k4_u = dt * compute_rhs_u(u + k3_u, v, nu, dx, dy)
+    k1_u = dt * compute_rhs_u_field(u, v, nu, dx, dy)
+    k2_u = dt * compute_rhs_u_field(u + 0.5 * k1_u, v, nu, dx, dy)
+    k3_u = dt * compute_rhs_u_field(u + 0.5 * k2_u, v, nu, dx, dy)
+    k4_u = dt * compute_rhs_u_field(u + k3_u, v, nu, dx, dy)
     u_new = u + (k1_u + 2 * k2_u + 2 * k3_u + k4_u) / 6
 
     # RK4 for v
-    k1_v = dt * compute_rhs_v(u, v, nu, dx, dy)
-    k2_v = dt * compute_rhs_v(u, v + 0.5 * k1_v, nu, dx, dy)
-    k3_v = dt * compute_rhs_v(u, v + 0.5 * k2_v, nu, dx, dy)
-    k4_v = dt * compute_rhs_v(u, v + k3_v, nu, dx, dy)
+    k1_v = dt * compute_rhs_v_field(u, v, nu, dx, dy)
+    k2_v = dt * compute_rhs_v_field(u, v + 0.5 * k1_v, nu, dx, dy)
+    k3_v = dt * compute_rhs_v_field(u, v + 0.5 * k2_v, nu, dx, dy)
+    k4_v = dt * compute_rhs_v_field(u, v + k3_v, nu, dx, dy)
     v_new = v + (k1_v + 2 * k2_v + 2 * k3_v + k4_v) / 6
 
     return u_new, v_new
@@ -675,7 +761,7 @@ plot_vector_field(u, v)
 
 for it in tqdm(range(nb_timesteps)):
 
-    u_new, v_new = rk4_velocity(u, v, nu, dx, dy, dt)
+    u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new = system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4)
 
     # residual = np.linalg.norm(v - v_new, ord=2)
     # if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
@@ -687,9 +773,9 @@ for it in tqdm(range(nb_timesteps)):
     # Updating of the new fields
     u = np.copy(u_new)
     v = np.copy(v_new)
-    # Y_n2 = np.copy(Y_n2_new)
-    # Y_o2 = np.copy(Y_o2_new)
-    # Y_ch4 = np.copy(Y_ch4_new)
+    Y_n2 = np.copy(Y_n2_new)
+    Y_o2 = np.copy(Y_o2_new)
+    Y_ch4 = np.copy(Y_ch4_new)
 
     # Strain rate
     strain_rate = np.abs(derivative_y_centered(v))
