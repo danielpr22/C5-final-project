@@ -581,7 +581,7 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 
 
 @jit(fastmath=True, nopython=True)
-def compute_rhs_Y_k(Y_k, source_term):
+def compute_rhs_Y_k(Y_k, source_term: np.array):
     derivative_x = derivative_x_centered(Y_k, dx)
     derivative_y = derivative_y_centered(Y_k, dy)
     second_derivative_x = second_centered_x(Y_k, dx)
@@ -596,7 +596,7 @@ def compute_rhs_Y_k(Y_k, source_term):
     return rhs
 
 @jit(fastmath=True, nopython=True)
-def rk4_step_Y_k(Y_k, source_term, dt):
+def rk4_step_Y_k(Y_k, source_term: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
 
@@ -632,12 +632,15 @@ def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
     concentration_ch4 = rho / W_CH4 * Y_ch4
     concentration_o2 = rho / W_O2 * Y_o2
     Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
+    source_term_n2 = nu_n2 / rho * W_N2 * Q
+    source_term_o2 = nu_o2 / rho * W_O2 * Q
+    source_term_ch4 = nu_ch4 / rho * W_CH4 * Q
 
-    Y_n2_new = update_Y_k(Y_n2, u, v, source_term = nu_n2 / rho * W_N2 * Q)
+    Y_n2_new = update_Y_k(Y_n2, u, v, source_term_n2)
 
-    Y_o2_new = update_Y_k(Y_o2, u, v, source_term = nu_o2 / rho * W_O2 * Q)
+    Y_o2_new = update_Y_k(Y_o2, u, v, source_term_o2)
 
-    Y_ch4_new = update_Y_k(Y_ch4, u, v, source_term = nu_ch4 / rho * W_CH4 * Q)
+    Y_ch4_new = update_Y_k(Y_ch4, u, v, source_term_ch4)
 
 
     # Step 2
@@ -673,9 +676,13 @@ def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
     concentration_o2 = rho / W_O2 * Y_o2
     Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
 
-    Y_n2_new = rk4_step_Y_k(Y_n2, u, v, source_term=nu_n2 / rho * W_N2 * Q, dx=dx, dy=dy, dt=dt)
-    Y_o2_new = rk4_step_Y_k(Y_o2, u, v, source_term=nu_o2 / rho * W_O2 * Q, dx=dx, dy=dy, dt=dt)
-    Y_ch4_new = rk4_step_Y_k(Y_ch4, u, v, source_term=nu_ch4 / rho * W_CH4 * Q, dx=dx, dy=dy, dt=dt)
+    source_term_n2 = nu_n2 / rho * W_N2 * Q
+    source_term_o2 = nu_o2 / rho * W_O2 * Q
+    source_term_ch4 = nu_ch4 / rho * W_CH4 * Q
+
+    Y_n2_new = rk4_step_Y_k(Y_n2, u, v, source_term_n2)
+    Y_o2_new = rk4_step_Y_k(Y_o2, u, v, source_term_o2)
+    Y_ch4_new = rk4_step_Y_k(Y_ch4, u, v, source_term_ch4)
 
     # Step 2
     u_double_star = rk4_second_step_frac(u_star)
