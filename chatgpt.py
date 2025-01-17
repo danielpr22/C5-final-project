@@ -97,7 +97,7 @@ Y_ch4 = np.zeros((nb_points, nb_points))
 
 # Attention: the sense of the derivatives is inversed!!
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     dvel_dx = np.zeros_like(vel)
 
@@ -108,7 +108,7 @@ def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
     return dvel_dx
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     dvel_dy = np.zeros_like(vel)
 
@@ -120,7 +120,7 @@ def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
     return dvel_dy
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     du_dx = np.zeros_like(u)
 
@@ -131,7 +131,7 @@ def derivative_x_centered(u: np.array, dx=dx) -> np.array:
     return du_dx
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     du_dy = np.zeros_like(u)
 
@@ -142,7 +142,7 @@ def derivative_y_centered(u: np.array, dy=dy) -> np.array:
     return du_dy
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def second_centered_x(u: np.array, dx=dx) -> np.array:
     d2u_dx2 = np.zeros_like(u)
 
@@ -155,7 +155,7 @@ def second_centered_x(u: np.array, dx=dx) -> np.array:
     return d2u_dx2
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def second_centered_y(u: np.array, dy=dy) -> np.array:
     d2u_dy2 = np.zeros_like(u)
 
@@ -168,7 +168,7 @@ def second_centered_y(u: np.array, dy=dy) -> np.array:
     return d2u_dy2
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -447,7 +447,7 @@ def animate_flow_evolution(
     plt.show()
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -477,7 +477,7 @@ def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
     return u, v, Y_n2, Y_o2, Y_ch4
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
     """The advection terms are solved following central differences, and the diffusion terms
     following second-order central differences
@@ -495,7 +495,7 @@ def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
     return Y_k_updated
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_first(u):
     derivative_x = derivative_x_centered(u)
     derivative_y = derivative_y_centered(u)
@@ -506,7 +506,7 @@ def compute_rhs_first(u):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac(u : np.array, dt=dt):
     
     k1 = dt * compute_rhs_first(u)
@@ -517,7 +517,7 @@ def rk4_first_step_frac(u : np.array, dt=dt):
     return u + (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_second(u):
     second_derivative_x = second_centered_x(u)
     second_derivative_y = second_centered_y(u)
@@ -527,7 +527,7 @@ def compute_rhs_second(u):
     )
     return rhs
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_second_step_frac(u : np.array, dt=dt):
     
     k1 = dt * compute_rhs_second(u)
@@ -538,7 +538,7 @@ def rk4_second_step_frac(u : np.array, dt=dt):
     return u + (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_u(P):
     derivative_x = derivative_x_centered(P)
 
@@ -547,7 +547,7 @@ def compute_rhs_u(P):
     )
     return rhs
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_u(P : np.array, dt = dt):
 
     k1 = dt * compute_rhs_u(P)
@@ -558,7 +558,7 @@ def rk4_fourth_step_frac_u(P : np.array, dt = dt):
     return P + (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_v(P):
     derivative_y = derivative_y_centered(P)
 
@@ -568,7 +568,7 @@ def compute_rhs_v(P):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     
     k1 = dt * compute_rhs_v(P)
@@ -580,8 +580,8 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 
 
 
-@jit(fastmath=True, nopython=True)
-def compute_rhs_Y_k(Y_k, source_term: np.array):
+#@jit(fastmath=True, nopython=True)
+def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     derivative_x = derivative_x_centered(Y_k, dx)
     derivative_y = derivative_y_centered(Y_k, dy)
     second_derivative_x = second_centered_x(Y_k, dx)
@@ -595,8 +595,8 @@ def compute_rhs_Y_k(Y_k, source_term: np.array):
     )
     return rhs
 
-@jit(fastmath=True, nopython=True)
-def rk4_step_Y_k(Y_k, source_term: np.array, dt=dt):
+#@jit(fastmath=True, nopython=True)
+def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
 
@@ -610,10 +610,10 @@ def rk4_step_Y_k(Y_k, source_term: np.array, dt=dt):
         np.array: Updated scalar field after one RK4 step.
     """
 
-    k1 = dt * compute_rhs_Y_k(Y_k, source_term)
-    k2 = dt * compute_rhs_Y_k(Y_k + 0.5 * k1, source_term)
-    k3 = dt * compute_rhs_Y_k(Y_k + 0.5 * k2, source_term)
-    k4 = dt * compute_rhs_Y_k(Y_k + k3, source_term)
+    k1 = dt * compute_rhs_Y_k(Y_k, u, v, source_term)
+    k2 = dt * compute_rhs_Y_k(Y_k + 0.5 * k1, u, v, source_term)
+    k3 = dt * compute_rhs_Y_k(Y_k + 0.5 * k2, u, v, source_term)
+    k4 = dt * compute_rhs_Y_k(Y_k + k3, u, v, source_term)
 
     return Y_k + (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
@@ -621,7 +621,7 @@ def rk4_step_Y_k(Y_k, source_term: np.array, dt=dt):
 # Fractional-step method #
 ##########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
     
     # Step 1
@@ -665,7 +665,7 @@ def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
 
     return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
     # Step 1
     u_star = rk4_first_step_frac(u)
@@ -706,7 +706,7 @@ def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
 
     return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_u_field(u, v, nu, dx, dy):
     """
     Compute the RHS of the advection-diffusion equation for u.
@@ -717,7 +717,7 @@ def compute_rhs_u_field(u, v, nu, dx, dy):
     diff_y = nu * second_centered_y(u, dy)
     return -(adv_x + adv_y) + (diff_x + diff_y)
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_v_field(u, v, nu=nu, dx=dx, dy=dy):
     """
     Compute the RHS of the advection-diffusion equation for v.
@@ -728,7 +728,7 @@ def compute_rhs_v_field(u, v, nu=nu, dx=dx, dy=dy):
     diff_y = nu * second_centered_y(v, dy)
     return -(adv_x + adv_y) + (diff_x + diff_y)
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_velocity(u, v, nu, dx, dy, dt):
     """
     Perform a single RK4 time step for the velocity fields u and v.
