@@ -59,27 +59,35 @@ u = np.zeros((nb_points, nb_points))
 # Pressure field
 P = np.zeros((nb_points, nb_points))
 
-rho = 1.1614 # Fluid density
-nu = 15e-6 # Kinematic viscosity
-
 
 #############
 # Chemistry #
 #############
 
+rho = 1.1614 # Fluid density
+nu = 15e-6 # Kinematic viscosity
+D = nu # Schmidt number
+a = nu # Prandtl number
 A = 1.1e8
 T_a = 10000
-R = 8.314  # Ideal gas constant in J/(mol* K)
-
+c_p = 1200 # J/(kg * K)
 W_N2 = 0.02802  # kg/mol
 W_O2 = 0.031999  # kg/mol
 W_CH4 = 0.016042  # kg/mol
+W_H2O = 0.018015  # kg/mol
+W_CO2 = 0.044009  # kg/mol
 
 nu_ch4 = -1
 nu_o2 = -2
 nu_n2 = 0
 nu_h2o = 2
 nu_co2 = 1
+
+h_n2 = 0
+h_o2 = 0
+h_ch4 = -74.9 # kJ/mol
+h_h2o = -241.818 # k/mol
+h_co2 = -393.52 # kJ/mol
 
 # Temperature field
 T = np.zeros((nb_points, nb_points))
@@ -639,6 +647,7 @@ def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
 
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
+
 ##########################
 # Fractional-step method #
 ##########################
@@ -688,7 +697,7 @@ def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
     return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
 @jit(fastmath=True, nopython=True)
-def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
+def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     # Step 1
     u_star = u - dt * rk4_first_step_frac_u(u, v)
     v_star = v - dt * rk4_first_step_frac_v(u, v)
@@ -701,10 +710,24 @@ def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
     source_term_n2 = nu_n2 / rho * W_N2 * Q
     source_term_o2 = nu_o2 / rho * W_O2 * Q
     source_term_ch4 = nu_ch4 / rho * W_CH4 * Q
+    source_term_h2o = nu_h2o / rho * W_H2O * Q
+    source_term_co2 = nu_co2 / rho * W_CO2 * Q
+
+    omega_T = - (h_n2 / W_N2 * rho * source_term_n2
+                 + h_o2 / W_O2 * rho * source_term_o2
+                 + h_ch4 / W_CH4 * rho * source_term_ch4
+                 + h_h2o / W_H2O * rho * source_term_h2o
+                 + h_co2 / W_CO2 * rho * source_term_co2)
+    
+    source_term_T = omega_T / (rho * c_p)
 
     Y_n2_new = Y_n2 + dt * rk4_step_Y_k(Y_n2, u, v, source_term_n2)
     Y_o2_new = Y_o2 + dt * rk4_step_Y_k(Y_o2, u, v, source_term_o2)
     Y_ch4_new = Y_ch4 + dt * rk4_step_Y_k(Y_ch4, u, v, source_term_ch4)
+    Y_h2o_new = Y_h2o + dt * rk4_step_Y_k(Y_h2o, u, v, source_term_h2o)
+    Y_co2_new = Y_co2 + dt * rk4_step_Y_k(Y_co2, u, v, source_term_co2)
+
+    T_new = T + dt * rk4_step_Y_k(T, u, v, source_term_T)
 
     # Step 2
     u_double_star = u_star + dt * rk4_second_step_frac(u_star)
@@ -726,7 +749,7 @@ def system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4):
     P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
     P[:, -1] = 0 # P = 0 at the right free limit
         
-    return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
+    return u_new, v_new, P, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
 
 @jit(fastmath=True, nopython=True)
 def compute_rhs_u_field(u, v, nu, dx, dy):
@@ -790,7 +813,7 @@ plot_vector_field(u, v)
 
 for it in tqdm(range(nb_timesteps)):
 
-    u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new = system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4)
+    u_new, v_new, P, T, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4)
 
     # residual = np.linalg.norm(v - v_new, ord=2)
     # if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
@@ -870,19 +893,34 @@ plt.show()
 ##############################
 
 plt.figure(figsize=(6, 5))
-plt.imshow(Y_o2_history[-1], cmap='viridis')  # Display the data as an image
+plt.imshow(Y_n2_history[-1], cmap='viridis')  # Display the data as an image
 plt.colorbar(label='Value')  # Add a colorbar with a label
-plt.title('Scalar Array with Colorbar')  # Add a title
+plt.title('Y_N2 at the steady state')  # Add a title
 plt.xlabel('X-axis')  # Label for the x-axis
 plt.ylabel('Y-axis')  # Label for the y-axis
+plt.show()
 
+plt.figure(figsize=(6, 5))
+plt.imshow(Y_o2_history[-1], cmap='viridis')  # Display the data as an image
+plt.colorbar(label='Value')  # Add a colorbar with a label
+plt.title('Y_O2 at the steady state')  # Add a title
+plt.xlabel('X-axis')  # Label for the x-axis
+plt.ylabel('Y-axis')  # Label for the y-axis
+plt.show()
+
+plt.figure(figsize=(6, 5))
+plt.imshow(Y_ch4_history[-1], cmap='viridis')  # Display the data as an image
+plt.colorbar(label='Value')  # Add a colorbar with a label
+plt.title('Y_CH4 at the steady state')  # Add a title
+plt.xlabel('X-axis')  # Label for the x-axis
+plt.ylabel('Y-axis')  # Label for the y-axis
 plt.show()
 
 #animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
 
-closest_index_top = np.abs(Y_n2_history[-1][:, 0] - 0.9 * Y_n2_history[0][-1, 0]).argmin()
-closest_index_bottom = np.abs(Y_n2_history[-1][:, 0] - 0.1 * Y_n2_history[0][-1, 0]).argmin()
-length_diffusion = -closest_index_top / nb_points * Lx + closest_index_bottom / nb_points * Lx
+closest_index_top = np.abs(Y_n2_history[-1][:, 1] - 0.9 * Y_n2_history[0][-1, 1]).argmin()
+closest_index_bottom = np.abs(Y_n2_history[-1][:, 1] - 0.1 * Y_n2_history[0][-1, 1]).argmin()
+length_diffusion = closest_index_bottom / nb_points * Lx - closest_index_top / nb_points * Lx
 
 # Once the u field is correctly advected, we calculate "a"
 strain_rate = np.abs(derivative_y_centered(v))
