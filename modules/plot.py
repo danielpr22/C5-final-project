@@ -10,23 +10,33 @@ def v_map(u: np.array, v: np.array, X: np.array, Y: np.array, color: str):
     plt.ylabel("y", fontsize=20)
 
 
-def streamplot(u,v,Lx,Ly,nb_points):
+def streamplot(ax, u, v, Lx, Ly, nb_points):
     x = np.linspace(0, Lx, nb_points)
     y = np.linspace(Ly, 0, nb_points)
-    X, Y = np.meshgrid(x, y,indexing='xy')
-    plt.quiver(X, Y, -u, v, color="black")
-    plt.xlim(0, Lx)
-    plt.ylim(0, Ly)
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.title("Vector Velocity Field")
+    X, Y = np.meshgrid(x, y, indexing="xy")
 
-def P(P):
-    plt.imshow(-P, cmap='viridis')  # Display the data as an image
-    plt.colorbar(label='Value')  # Add a colorbar with a label
-    plt.title('Scalar Array with Colorbar')  # Add a title
-    plt.xlabel('X-axis')  # Label for the x-axis
-    plt.ylabel('Y-axis')  # Label for the y-axis
+    ax.quiver(X, Y, -u, v, color="black")
+    ax.set_xlim(0, Lx)
+    ax.set_ylim(0, Ly)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_title("Streamplot of Vector Velocity Field")
+
+
+def P(ax, P, Lx, Ly, vmin, vmax):
+    # Use pcolormesh for consistency with the streamplot
+    P = P
+    pressure_plot = ax.imshow(
+        -P,
+        extent=(0, Lx, 0, Ly),
+        cmap="viridis",
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="gaussian",
+    )
+    return pressure_plot  # Return handle for colorbar
+
+
 def animate_flow_evolution(
     u_history,
     v_history,
@@ -37,7 +47,7 @@ def animate_flow_evolution(
     L_coflow,
     interval=1500,
     skip_frames=2,
-    save_path='C:\\Users\\danie\\Desktop\\animation.gif',
+    save_path="C:\\Users\\danie\\Desktop\\animation.gif",
 ):
     """
     Create a slower animation of the flow evolution over time, accounting for matrix indexing.
@@ -138,7 +148,6 @@ def animate_flow_evolution(
     plt.show()
 
 
-
 def velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=None):
     """
     Plot the velocity fields u and v using colormaps, accounting for matrix indexing.
@@ -156,7 +165,7 @@ def velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=None):
     # Create coordinate meshgrid
     x = np.linspace(0, Lx, nb_points)
     y = np.linspace(Ly, 0, nb_points)  # Reversed for matrix indexing
-    X, Y = np.meshgrid(x, y, indexing='xy')
+    X, Y = np.meshgrid(x, y, indexing="xy")
 
     # Create a figure with two subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
