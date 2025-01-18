@@ -3,7 +3,7 @@
 #############
 
 nb_points = 32
-dt = 1e-6
+dt = 1e-9
 final_time = 1
 nb_timesteps = int(final_time / dt)
 Lx, Ly = 2e-3, 2e-3

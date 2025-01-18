@@ -52,7 +52,7 @@ Y_co2 = np.zeros((nb_points, nb_points))
 # Successive Overrelaxation (SOR) method #
 ##########################################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -103,7 +103,7 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omeg
 # Boundary conditions #
 #######################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -142,7 +142,7 @@ def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
 # First step of the RK4 #
 #########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_first_u(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(u)
     derivative_y = der.derivative_y_centered(u)
@@ -154,7 +154,7 @@ def compute_rhs_first_u(u : np.array, v : np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_first_v(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(v)
     derivative_y = der.derivative_y_centered(v)
@@ -166,7 +166,7 @@ def compute_rhs_first_v(u : np.array, v : np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_u(u, v)
@@ -177,7 +177,7 @@ def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_v(u, v)
@@ -192,7 +192,7 @@ def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
 # Second step of the RK4 #
 ##########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_second(u : np.array):
     second_derivative_x = der.second_centered_x(u)
     second_derivative_y = der.second_centered_y(u)
@@ -202,7 +202,7 @@ def compute_rhs_second(u : np.array):
     )
     return rhs
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_second_step_frac(u : np.array, dt=dt):
     
     k1 = compute_rhs_second(u)
@@ -217,7 +217,7 @@ def rk4_second_step_frac(u : np.array, dt=dt):
 # Fourth step of the RK4 (the third one is SOR) #
 #################################################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_u(P : np.array):
     derivative_x = der.derivative_x_centered(P)
 
@@ -227,7 +227,7 @@ def compute_rhs_u(P : np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_v(P):
     derivative_y = der.derivative_y_centered(P)
 
@@ -237,7 +237,7 @@ def compute_rhs_v(P):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_u(P : np.array, dt = dt):
 
     k1 = compute_rhs_u(P)
@@ -248,7 +248,7 @@ def rk4_fourth_step_frac_u(P : np.array, dt = dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     
     k1 = compute_rhs_v(P)
@@ -263,7 +263,7 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 # Solving species transport using RK4 #
 #######################################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     derivative_x = der.derivative_x_centered(Y_k)
     derivative_y = der.derivative_y_centered(Y_k)
@@ -279,7 +279,7 @@ def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
@@ -306,7 +306,7 @@ def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
 # Fractional-step method #
 ##########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     # Step 1
     u_star = u - dt * rk4_first_step_frac_u(u, v)
