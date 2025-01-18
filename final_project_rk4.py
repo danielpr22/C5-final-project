@@ -17,9 +17,10 @@ from constants import (
 # Input on image storage path and figure saving #
 #################################################
 
-output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_0' # Path where the images will be stored
+# Path where the images will be stored (the name of the folder is specified at the end of the string)
+output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_1' 
 dpi = 300 # For storing the images with high quality
-show_figures = True # If this variable is set to false, all the images are stored in the selected path and are not shown here
+show_figures = False # If this variable is set to false, all the images are stored in the selected path and are not shown here
 
 # To make sure that the folder exists
 os.makedirs(output_folder, exist_ok=True) 
@@ -51,7 +52,7 @@ Y_co2 = np.zeros((nb_points, nb_points))
 # Successive Overrelaxation (SOR) method #
 ##########################################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -102,7 +103,7 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omeg
 # Boundary conditions #
 #######################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -141,7 +142,7 @@ def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
 # First step of the RK4 #
 #########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_first_u(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(u)
     derivative_y = der.derivative_y_centered(u)
@@ -153,7 +154,7 @@ def compute_rhs_first_u(u : np.array, v : np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_first_v(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(v)
     derivative_y = der.derivative_y_centered(v)
@@ -165,7 +166,7 @@ def compute_rhs_first_v(u : np.array, v : np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_u(u, v)
@@ -176,7 +177,7 @@ def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_v(u, v)
@@ -191,7 +192,7 @@ def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
 # Second step of the RK4 #
 ##########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_second(u : np.array):
     second_derivative_x = der.second_centered_x(u)
     second_derivative_y = der.second_centered_y(u)
@@ -201,7 +202,7 @@ def compute_rhs_second(u : np.array):
     )
     return rhs
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_second_step_frac(u : np.array, dt=dt):
     
     k1 = compute_rhs_second(u)
@@ -216,7 +217,7 @@ def rk4_second_step_frac(u : np.array, dt=dt):
 # Fourth step of the RK4 (the third one is SOR) #
 #################################################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_u(P : np.array):
     derivative_x = der.derivative_x_centered(P)
 
@@ -226,7 +227,7 @@ def compute_rhs_u(P : np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_v(P):
     derivative_y = der.derivative_y_centered(P)
 
@@ -236,7 +237,7 @@ def compute_rhs_v(P):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_u(P : np.array, dt = dt):
 
     k1 = compute_rhs_u(P)
@@ -247,7 +248,7 @@ def rk4_fourth_step_frac_u(P : np.array, dt = dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     
     k1 = compute_rhs_v(P)
@@ -262,7 +263,7 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 # Solving species transport using RK4 #
 #######################################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     derivative_x = der.derivative_x_centered(Y_k)
     derivative_y = der.derivative_y_centered(Y_k)
@@ -278,7 +279,7 @@ def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
@@ -305,7 +306,7 @@ def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
 # Fractional-step method #
 ##########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     # Step 1
     u_star = u - dt * rk4_first_step_frac_u(u, v)
@@ -336,21 +337,21 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     Y_h2o_new = Y_h2o + dt * rk4_step_Y_k(Y_h2o, u, v, source_term_h2o)
     Y_co2_new = Y_co2 + dt * rk4_step_Y_k(Y_co2, u, v, source_term_co2)
 
-    T_new = T + dt * rk4_step_Y_k(T, u, v, source_term_T)
+    T_new = T + dt * rk4_step_Y_k(T, u, v, source_term_T) # The Y_k method can also be used for T!
 
     # Step 2
     u_double_star = u_star + dt * rk4_second_step_frac(u_star)
     v_double_star = v_star + dt * rk4_second_step_frac(v_star)
 
     # Step 3 (P is updated)
-    P = sor(P, f=rho / dt * (der.derivative_x_centered(u_double_star) + der.derivative_y_centered(v_double_star)))
+    P_new = sor(P, f=rho / dt * (der.derivative_x_centered(u_double_star) + der.derivative_y_centered(v_double_star)))
 
     # Step 4
     u_new = u_double_star - dt / rho * rk4_fourth_step_frac_u(P)
     v_new = v_double_star - dt / rho * rk4_fourth_step_frac_v(P)
 
     # Boundary conditions
-    u_new, v_new, T, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, T, Y_n2_new, Y_o2_new, Y_ch4_new)
+    u_new, v_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new)
 
     P[:, 0] = 0
     P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
@@ -358,7 +359,7 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
     P[:, -1] = 0 # P = 0 at the right free limit
         
-    return u_new, v_new, P, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
+    return u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
 
 
 
@@ -379,6 +380,8 @@ plots.plot_vector_field(u, v, output_folder, dpi)
 # Lists to store velocity fields at different timesteps
 u_history = []
 v_history = []
+P_history = []
+T_history = []
 strain_rate_history = []
 Y_n2_history = []
 Y_o2_history = []
@@ -388,7 +391,7 @@ Y_co2_history = []
 
 for it in tqdm(range(nb_timesteps)):
 
-    u_new, v_new, P, T, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_ch4)
+    u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
 
     residual = np.linalg.norm(v - v_new, ord=2) # For example, with the v-field
     if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
@@ -400,6 +403,8 @@ for it in tqdm(range(nb_timesteps)):
     # Updating of the new fields
     u = np.copy(u_new)
     v = np.copy(v_new)
+    P = np.copy(P_new)
+    T = np.copy(T_new)
     Y_n2 = np.copy(Y_n2_new)
     Y_o2 = np.copy(Y_o2_new)
     Y_ch4 = np.copy(Y_ch4_new)
@@ -413,6 +418,8 @@ for it in tqdm(range(nb_timesteps)):
     if it % 1 == 0:
         u_history.append(u.copy())
         v_history.append(v.copy())
+        P_history.append(P.copy())
+        T_history.append(T.copy())
         strain_rate_history.append(max_strain_rate.copy())
         Y_n2_history.append(Y_n2.copy())
         Y_o2_history.append(Y_o2.copy())
@@ -420,6 +427,15 @@ for it in tqdm(range(nb_timesteps)):
         Y_h2o_history.append(Y_h2o.copy())
         Y_co2_history.append(Y_co2.copy())
 
+
+u_history = np.array(u_history)
+v_history = np.array(v_history)
+strain_rate_history = np.array(strain_rate_history)
+Y_n2_history = np.array(Y_n2_history)
+Y_o2_history = np.array(Y_o2_history)
+Y_ch4_history = np.array(Y_ch4_history)
+Y_h2o_history = np.array(Y_h2o_history)
+Y_co2_history = np.array(Y_co2_history)
 
 
 #########################
@@ -460,7 +476,7 @@ else:
 # Final velocity fields (magnitude) #
 #####################################
 
-plots.plot_velocity_fields(-u_history[-1], v_history[-1], Lx, Ly, L_slot, L_coflow, show_figures, dpi, 'Final velocity fields', output_folder)
+plots.plot_velocity_fields(-u_history[-1], v_history[-1], Lx, Ly, show_figures, dpi, 'Final velocity fields', output_folder)
 
 
 #####################################
@@ -490,9 +506,9 @@ else:
 
 plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_N2 (steady)')
 plots.plot_field(Y_o2_history[-1], output_folder, show_figures, dpi, 'Y_O2 (steady)')
-plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_CH4 (steady)')
-plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_H2O (steady)')
-plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_CO2 (steady)')
+plots.plot_field(Y_ch4_history[-1], output_folder, show_figures, dpi, 'Y_CH4 (steady)')
+plots.plot_field(Y_h2o_history[-1], output_folder, show_figures, dpi, 'Y_H2O (steady)')
+plots.plot_field(Y_co2_history[-1], output_folder, show_figures, dpi, 'Y_CO2 (steady)')
 
 
 ###########################
@@ -506,7 +522,7 @@ plots.plot_field(T, output_folder, show_figures, dpi, 'Temperature field')
 # Animation of the flow evolution #
 ###################################
 
-plots.animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
+plots.animate_flow_evolution(-u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi)
 
 
 #########################################################################

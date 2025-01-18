@@ -18,7 +18,7 @@ X,Y = np.meshgrid(x,y,indexing='xy')
 ######################################################
 
 
-def plot_velocity_fields(u, v, Lx, Ly, L_slot, L_coflow, show_figures, dpi, filename, output_folder=None):
+def plot_velocity_fields(u, v, Lx, Ly, show_figures, dpi, filename, output_folder=None, L_slot=L_slot, L_coflow=L_coflow):
     """
     Plot the velocity fields u and v using colormaps, accounting for matrix indexing.
 
@@ -95,18 +95,9 @@ def plot_vector_field(u: np.array, v: np.array, output_folder, dpi, filename='Fl
 
 
 
-def animate_flow_evolution(
-    u_history,
-    v_history,
-    Lx,
-    Ly,
-    nb_points,
-    L_slot=L_slot,
-    L_coflow=L_coflow,
-    interval=100,
-    skip_frames=2,
-    output_folder='C:\\Users\\danie\\Desktop\\animation.gif',
-):
+def animate_flow_evolution(u_history, v_history, Lx, Ly,
+                           nb_points, L_slot, L_coflow, output_folder, 
+                           dpi, interval=100, skip_frames=5):
     """
     Create a slower animation of the flow evolution over time, accounting for matrix indexing.
 
@@ -118,6 +109,8 @@ def animate_flow_evolution(
         nb_points (int): Number of grid points
         L_slot (float): Length of the slot
         L_coflow (float): Length of the coflow region
+        output_folder : Path where the data will be stored
+        dpi : For quality
         interval (int): Interval between frames in milliseconds (default: 200ms for slower animation)
         skip_frames (int): Number of frames to skip between each animation frame (default: 2)
         output_folder (str, optional): Path to save the animation
@@ -200,19 +193,27 @@ def animate_flow_evolution(
         fig, update, frames=len(frame_indices), interval=interval, blit=True
     )
 
+    filename = 'Time animation of the velocity fields.gif'
     if output_folder:
-        anim.save(output_folder, writer="pillow")
+        anim.save(os.path.join(output_folder, filename), dpi = dpi, writer="pillow")
     
     plt.show()
 
 
 def plot_field(Y_k : np.array, output_folder, show_figures, dpi, filename):
+
+    # Create coordinate meshgrid with reversed y-axis for matrix indexing
+    x = np.linspace(0, Lx, nb_points)
+    y = np.linspace(Ly, 0, nb_points)  # Reversed for matrix indexing
+    X, Y = np.meshgrid(x, y)
+
     plt.figure(figsize=(6, 5))
+
     plt.imshow(Y_k, cmap='viridis')  # Display the data as an image
     plt.colorbar(label='Value')  # Add a colorbar with a label
     plt.title(filename)  # Add a title
-    plt.xlabel('X-axis')  # Label for the x-axis
-    plt.ylabel('Y-axis')  # Label for the y-axis
+    plt.xlabel('Lx (mm)')  # Label for the x-axis
+    plt.ylabel('Ly(mm)')  # Label for the y-axis
     output_folder = os.path.join(output_folder, filename)
     plt.savefig(output_folder, dpi = dpi)
 
