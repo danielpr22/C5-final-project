@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import os
 import numpy as np
+from matplotlib.animation import FuncAnimation
 from constants import (
     nb_points, dt, nb_timesteps, Lx, Ly, L_slot, L_coflow, U_slot, U_coflow, 
     T_slot, T_coflow, dx, dy, max_iter_sor, omega, tolerance_sor, tolerance_sys, 
@@ -94,10 +95,9 @@ def plot_vector_field(u: np.array, v: np.array, output_folder, dpi, filename='Fl
     plt.close()
 
 
-
 def animate_flow_evolution(u_history, v_history, Lx, Ly,
                            nb_points, L_slot, L_coflow, output_folder, 
-                           dpi, interval=100, skip_frames=5):
+                           dpi, interval=100, skip_frames=20):
     """
     Create a slower animation of the flow evolution over time, accounting for matrix indexing.
 
@@ -115,7 +115,6 @@ def animate_flow_evolution(u_history, v_history, Lx, Ly,
         skip_frames (int): Number of frames to skip between each animation frame (default: 2)
         output_folder (str, optional): Path to save the animation
     """
-    from matplotlib.animation import FuncAnimation
 
     # Create coordinate meshgrid with reversed y-axis for matrix indexing
     x = np.linspace(0, Lx, nb_points)
@@ -196,6 +195,85 @@ def animate_flow_evolution(u_history, v_history, Lx, Ly,
     filename = 'Time animation of the velocity fields.gif'
     if output_folder:
         anim.save(os.path.join(output_folder, filename), dpi = dpi, writer="pillow")
+    
+    plt.show()
+
+
+def animate_field_evolution(field_history, Lx, Ly, nb_points, L_slot, L_coflow, 
+                            output_folder, dpi, field_name, interval=100, skip_frames=20):
+    """
+    Create an animation of the evolution of a single field over time.
+
+    Parameters:
+        field_history (list): List of field values at different timesteps.
+        Lx (float): Domain length in x direction.
+        Ly (float): Domain length in y direction.
+        nb_points (int): Number of grid points.
+        L_slot (float): Length of the slot.
+        L_coflow (float): Length of the coflow region.
+        output_folder (str): Path to save the animation.
+        dpi (int): Resolution of the animation.
+        interval (int): Interval between frames in milliseconds (default: 100ms).
+        skip_frames (int): Number of frames to skip between each animation frame (default: 5).
+        field_name (str): Name of the field being animated.
+    """
+
+    # Create coordinate meshgrid with reversed y-axis for matrix indexing
+    x = np.linspace(0, Lx, nb_points)
+    y = np.linspace(Ly, 0, nb_points)  # Reversed for matrix indexing
+    X, Y = np.meshgrid(x, y)
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Calculate value range for consistent colorbar
+    field_min = min(np.min(f) for f in field_history)
+    field_max = max(np.max(f) for f in field_history)
+
+    # Initialize plot with consistent color scale
+    c = ax.pcolormesh(
+        X, Y, field_history[0], cmap="RdBu_r", shading="auto", vmin=field_min, vmax=field_max
+    )
+    ax.set_title(f"{field_name} evolution")
+    ax.set_xlabel("Lx (mm)")
+    ax.set_ylabel("Ly (mm)")
+    plt.colorbar(c, ax=ax, label=f"{field_name} value")
+
+    # Add reference lines and labels for regions
+    ax.axvline(x=L_slot, color="k", linestyle="--", alpha=0.5)
+    ax.axvline(x=L_slot + L_coflow, color="k", linestyle="--", alpha=0.5)
+    ax.text(L_slot / 2, Ly - 0.1e-3, "Slot", ha="center")
+    ax.text(L_slot + L_coflow / 2, Ly - 0.1e-3, "Coflow", ha="center")
+    ax.text(
+        L_slot + L_coflow + (Lx - L_slot - L_coflow) / 2,
+        Ly - 0.1e-3,
+        "External",
+        ha="center",
+    )
+
+    # Add timestamp text
+    timestamp = ax.text(
+        0.02, 1.02, f"Frame: 0/{len(field_history)}", transform=ax.transAxes
+    )
+
+    # Take every nth frame for smoother animation
+    frame_indices = range(0, len(field_history), skip_frames)
+
+    def update(frame_idx):
+        frame = frame_indices[frame_idx]
+        c.set_array(field_history[frame].ravel())
+        timestamp.set_text(f"Frame: {frame}/{len(field_history)}")
+        return c, timestamp
+
+    plt.tight_layout()
+
+    anim = FuncAnimation(
+        fig, update, frames=len(frame_indices), interval=interval, blit=True
+    )
+
+    filename = f'{field_name}_evolution.gif'
+    if output_folder:
+        anim.save(os.path.join(output_folder, filename), dpi=dpi, writer="pillow")
     
     plt.show()
 

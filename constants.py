@@ -1,10 +1,13 @@
+import numpy as np
+
+
 #############
 # Constants #
 #############
 
-nb_points = 64
+nb_points = 32
 dt = 1e-6
-final_time = 1
+final_time = 1e-4
 nb_timesteps = int(final_time / dt)
 Lx, Ly = 2e-3, 2e-3
 L_slot, L_coflow= 0.5e-3, 0.5e-3
@@ -13,14 +16,14 @@ T_slot, T_coflow = 300, 300
 dx = Lx / (nb_points - 1)
 dy = Ly / (nb_points - 1)
 max_iter_sor = 10000  # Maximum number of iterations for achieving convergence in the SOR method
-omega = 1.5  # Parameter for the Successive Overrelaxation Method (SOR), it must be between 1 and 2
+omega = 2 / (1 + np.sin(np.pi / nb_points))  # Parameter for the Successive Overrelaxation Method (SOR), it is between 1 and 2
 
 ##################################
 # Tolerances for the convergence #
 ##################################
 
 tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
-tolerance_sys = 1e-5 # Tolerance for the convergence of the whole system
+tolerance_sys = 1e-7 # Tolerance for the convergence of the whole system
 
 #############
 # Chemistry #

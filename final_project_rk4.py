@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from numba import jit
-import derivatives as der
+import derivatives_vectorized as der
 import plotting as plots
 from constants import (
     nb_points, dt, nb_timesteps, Lx, Ly, L_slot, L_coflow, U_slot, U_coflow, 
@@ -18,9 +18,14 @@ from constants import (
 #################################################
 
 # Path where the images will be stored (the name of the folder is specified at the end of the string)
-output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_3' 
-dpi = 300 # For storing the images with high quality
+output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_12' 
+dpi = 100 # For storing the images with high quality
 show_figures = False # If this variable is set to false, all the images are stored in the selected path and are not shown here
+compute_animations = True
+
+# If this variable is set to true, the calculation will stop to evolve when the tolerance for convergence is reached.
+# If it is set to False, the calculation will stop at the given final_time
+convergence_by_tolerance = False 
 
 # To make sure that the folder exists
 os.makedirs(output_folder, exist_ok=True) 
@@ -36,16 +41,18 @@ u = np.zeros((nb_points, nb_points))
 
 # Pressure field
 P = np.zeros((nb_points, nb_points))
+P[:, :] = 101325
 
 # Temperature field
 T = np.zeros((nb_points, nb_points))
-T[:, :] = 273 # We apply a constant field everywhere before applying the boundary conditions to avoid division by 0 in the exponential
+T[:, :] = 300 # We apply a constant field everywhere before applying the boundary conditions to avoid division by 0 in the exponential
+T[int(3 * nb_points / 8) : int(5 * nb_points / 8), 1 :] = 1000
 
 # Species fields
 Y_n2 = np.zeros((nb_points, nb_points))
 Y_o2 = np.zeros((nb_points, nb_points)) 
 Y_ch4 = np.zeros((nb_points, nb_points)) 
-Y_h2o = np.zeros((nb_points, nb_points)) # Should we put boundary conditions here?
+Y_h2o = np.zeros((nb_points, nb_points))
 Y_co2 = np.zeros((nb_points, nb_points)) 
 
 
@@ -53,46 +60,103 @@ Y_co2 = np.zeros((nb_points, nb_points))
 # Successive Overrelaxation (SOR) method #
 ##########################################
 
-@jit(fastmath=True, nopython=True)
+# #@jit(fastmath=True, nopython=True)
+# def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
+#     """
+#     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
+#     Optimized using Numba
+
+#     Parameters:
+#         P (np.array): Initial guess for the pressure field.
+#         f (np.array): Right-hand side of the Poisson equation.
+#         tolerance (float): Convergence tolerance for the iterative method.
+#         max_iter_sor (int): Maximum number of iterations.
+#         omega (float): Relaxation factor, between 1 and 2.
+
+#     Returns:
+#         np.array: Updated pressure field.
+#     """
+
+#     coef = 2 * (1 / dx**2 + 1 / dy**2)
+
+#     for _ in range(max_iter_sor):
+#         P_old = P.copy()
+#         laplacian_P = np.zeros_like(P)
+        
+#         for i in range(1, nb_points - 1):
+#             for j in range(1, nb_points - 1):
+#                 laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dy**2 + (P_old[i, j+1] + P[i, j-1]) / dx**2
+                
+#                 # Update P using the SOR formula
+#                 P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+
+#         P[:, 0] = 0
+#         P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
+#         P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
+#         P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
+#         P[:, -1] = 0 # P = 0 at the right free limit
+        
+#         # Compute the residual to check for convergence
+#         residual = np.linalg.norm(P - P_old, ord=2)
+#         if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+#             residual /= np.linalg.norm(P_old, ord=2)
+
+#         if residual < tolerance_sor:
+#             break
+
+#     return P
+
+
+#@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
     """
-    Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
-    Optimized using Numba
+    Vectorized Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
+    Optimized using Numba.
 
     Parameters:
         P (np.array): Initial guess for the pressure field.
         f (np.array): Right-hand side of the Poisson equation.
-        tolerance (float): Convergence tolerance for the iterative method.
+        tolerance_sor (float): Convergence tolerance for the iterative method.
         max_iter_sor (int): Maximum number of iterations.
         omega (float): Relaxation factor, between 1 and 2.
+        dx, dy (float): Grid spacing in x and y directions.
+        nb_points (int): Number of grid points in each dimension.
 
     Returns:
         np.array: Updated pressure field.
     """
-
     coef = 2 * (1 / dx**2 + 1 / dy**2)
+    P_old = np.zeros_like(P)
 
     for _ in range(max_iter_sor):
-        P_old = P.copy()
+        # Copy current pressure to P_old
+        P_old[:, :] = np.copy(P)
         laplacian_P = np.zeros_like(P)
-        
-        for i in range(1, nb_points - 1):
-            for j in range(1, nb_points - 1):
-                laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dy**2 + (P_old[i, j+1] + P[i, j-1]) / dx**2
-                
-                # Update P using the SOR formula
-                P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
+
+
+        # Compute the Laplacian for all interior points at once
+        laplacian_P = (
+            (P_old[2:, 1:-1] + P[:-2, 1:-1]) / dy**2 +
+            (P_old[1:-1, 2:] + P[1:-1, :-2]) / dx**2
+        )
+
+        # Update pressure field for interior points using the SOR formula
+        P[1:-1, 1:-1] = (
+            (1 - omega) * P_old[1:-1, 1:-1] +
+            (omega / coef) * (laplacian_P - f[1:-1, 1:-1])
+        )
 
         P[:, 0] = 0
         P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
         P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
         P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-        P[:, -1] = 0 # P = 0 at the right free limit
-        
-        # Compute the residual to check for convergence
-        residual = np.linalg.norm(P - P_old, ord=2)
-        if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-            residual /= np.linalg.norm(P_old, ord=2)
+        P[:, -1] = 0
+
+        # Compute residual norm
+        residual = np.sqrt(np.sum((P - P_old)**2))
+        norm_P_old = np.sqrt(np.sum(P_old**2))
+        if norm_P_old > 1e-10:
+            residual /= norm_P_old
 
         if residual < tolerance_sor:
             break
@@ -104,8 +168,8 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omeg
 # Boundary conditions #
 #######################
 
-@jit(fastmath=True, nopython=True)
-def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
+#@jit(fastmath=True, nopython=True)
+def boundary_conditions(u, v, P, T, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
     u[:, 1] = 0 # Left slipping wall
@@ -128,6 +192,12 @@ def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
     T[0, int(L_slot / Lx * nb_points) + 1 : int((L_slot + L_coflow) / Lx * nb_points)] = T_coflow
     T[-1, int(L_slot / Lx * nb_points) + 1 : int((L_slot + L_coflow) / Lx * nb_points)] = T_coflow
 
+    P[:, 0] = 0
+    P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
+    P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
+    P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
+    P[:, -1] = 0 # P = 0 at the right free limit
+
     Y_n2[-1, 1 : int(L_slot / Lx * nb_points) + 1] = 0.767 # Initial condition for the nitrogen in air (bottom slot)
     Y_n2[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
@@ -136,14 +206,14 @@ def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
 
     Y_ch4[0, 1 : int(L_slot / Lx * nb_points) + 1] = 1
 
-    return u, v, T, Y_n2, Y_o2, Y_ch4
+    return u, v, P, T, Y_n2, Y_o2, Y_ch4
 
 
 #########################
 # First step of the RK4 #
 #########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_first_u(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(u)
     derivative_y = der.derivative_y_centered(u)
@@ -155,7 +225,7 @@ def compute_rhs_first_u(u : np.array, v : np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_first_v(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(v)
     derivative_y = der.derivative_y_centered(v)
@@ -167,7 +237,7 @@ def compute_rhs_first_v(u : np.array, v : np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_u(u, v)
@@ -178,7 +248,7 @@ def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_v(u, v)
@@ -193,7 +263,7 @@ def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
 # Second step of the RK4 #
 ##########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_second(u : np.array):
     second_derivative_x = der.second_centered_x(u)
     second_derivative_y = der.second_centered_y(u)
@@ -203,7 +273,7 @@ def compute_rhs_second(u : np.array):
     )
     return rhs
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_second_step_frac(u : np.array, dt=dt):
     
     k1 = compute_rhs_second(u)
@@ -218,7 +288,7 @@ def rk4_second_step_frac(u : np.array, dt=dt):
 # Fourth step of the RK4 (the third one is SOR) #
 #################################################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_u(P : np.array):
     derivative_x = der.derivative_x_centered(P)
 
@@ -228,7 +298,7 @@ def compute_rhs_u(P : np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_v(P):
     derivative_y = der.derivative_y_centered(P)
 
@@ -238,7 +308,7 @@ def compute_rhs_v(P):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_u(P : np.array, dt = dt):
 
     k1 = compute_rhs_u(P)
@@ -249,7 +319,7 @@ def rk4_fourth_step_frac_u(P : np.array, dt = dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     
     k1 = compute_rhs_v(P)
@@ -264,7 +334,7 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 # Solving species transport using RK4 #
 #######################################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     derivative_x = der.derivative_x_centered(Y_k)
     derivative_y = der.derivative_y_centered(Y_k)
@@ -280,7 +350,7 @@ def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     return rhs
 
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
@@ -307,7 +377,7 @@ def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
 # Fractional-step method #
 ##########################
 
-@jit(fastmath=True, nopython=True)
+#@jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     # Step 1
     u_star = u - dt * rk4_first_step_frac_u(u, v)
@@ -324,21 +394,21 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     source_term_h2o = nu_h2o / rho * W_H2O * Q
     source_term_co2 = nu_co2 / rho * W_CO2 * Q
 
-    omega_T = - (h_n2 / W_N2 * rho * source_term_n2
-                 + h_o2 / W_O2 * rho * source_term_o2
-                 + h_ch4 / W_CH4 * rho * source_term_ch4
-                 + h_h2o / W_H2O * rho * source_term_h2o
-                 + h_co2 / W_CO2 * rho * source_term_co2)
+    # omega_T = - (h_n2 / W_N2 * rho * source_term_n2
+    #              + h_o2 / W_O2 * rho * source_term_o2
+    #              + h_ch4 / W_CH4 * rho * source_term_ch4
+    #              + h_h2o / W_H2O * rho * source_term_h2o
+    #              + h_co2 / W_CO2 * rho * source_term_co2)
     
-    source_term_T = omega_T / (rho * c_p)
+    # source_term_T = omega_T / (rho * c_p)
 
-    Y_n2_new = Y_n2 + dt * rk4_step_Y_k(Y_n2, u, v, source_term_n2)
-    Y_o2_new = Y_o2 + dt * rk4_step_Y_k(Y_o2, u, v, source_term_o2)
-    Y_ch4_new = Y_ch4 + dt * rk4_step_Y_k(Y_ch4, u, v, source_term_ch4)
-    Y_h2o_new = Y_h2o + dt * rk4_step_Y_k(Y_h2o, u, v, source_term_h2o)
-    Y_co2_new = Y_co2 + dt * rk4_step_Y_k(Y_co2, u, v, source_term_co2)
+    Y_n2_new = Y_n2 + dt * rk4_step_Y_k(Y_n2, -u, v, source_term_n2)
+    Y_o2_new = Y_o2 + dt * rk4_step_Y_k(Y_o2, -u, v, source_term_o2)
+    Y_ch4_new = Y_ch4 + dt * rk4_step_Y_k(Y_ch4, -u, v, source_term_ch4)
+    Y_h2o_new = Y_h2o + dt * rk4_step_Y_k(Y_h2o, -u, v, source_term_h2o)
+    Y_co2_new = Y_co2 + dt * rk4_step_Y_k(Y_co2, -u, v, source_term_co2)
 
-    T_new = T + dt * rk4_step_Y_k(T, u, v, source_term_T) # The Y_k method can also be used for T!
+    # T_new = T + dt * rk4_step_Y_k(T, -u, v, source_term_T) # The Y_k method can also be used for T!
 
     # Step 2
     u_double_star = u_star + dt * rk4_second_step_frac(u_star)
@@ -352,13 +422,7 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     v_new = v_double_star - dt / rho * rk4_fourth_step_frac_v(P)
 
     # Boundary conditions
-    u_new, v_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new)
-
-    P[:, 0] = 0
-    P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-    P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
-    P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-    P[:, -1] = 0 # P = 0 at the right free limit
+    u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, P_new, T, Y_n2_new, Y_o2_new, Y_ch4_new)
         
     return u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
 
@@ -369,7 +433,7 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
 # Plotting the initial velocity field #
 #######################################
 
-u, v, T, Y_n2, Y_o2, Y_ch4 = boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4)
+u, v, P, T, Y_n2, Y_o2, Y_ch4 = boundary_conditions(u, v, P, T, Y_n2, Y_o2, Y_ch4)
 
 plots.plot_vector_field(u, v, output_folder, dpi)
 
@@ -394,12 +458,13 @@ for it in tqdm(range(nb_timesteps)):
 
     u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
 
-    residual = np.linalg.norm(v - v_new, ord=2) # For example, with the v-field
-    if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-        residual /= np.linalg.norm(v, ord=2)
+    if convergence_by_tolerance: 
+        residual = np.linalg.norm(v - v_new, ord=2) # For example, with the v-field
+        if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+            residual /= np.linalg.norm(v, ord=2)
 
-    if residual < tolerance_sys:
-        break
+        if residual < tolerance_sys:
+            break
 
     # Updating of the new fields
     u = np.copy(u_new)
@@ -431,6 +496,8 @@ for it in tqdm(range(nb_timesteps)):
 
 u_history = np.array(u_history)
 v_history = np.array(v_history)
+P_history = np.array(P_history)
+T_history = np.array(T_history)
 strain_rate_history = np.array(strain_rate_history)
 Y_n2_history = np.array(Y_n2_history)
 Y_o2_history = np.array(Y_o2_history)
@@ -460,7 +527,7 @@ else:
 ########################
 
 plt.figure(figsize=(6, 5))
-plt.imshow(-P, cmap='viridis')  # Display the data as an image
+plt.imshow(P, cmap='viridis')  # Display the data as an image
 plt.colorbar(label='Value')  # Add a colorbar with a label
 plt.title('Pressure field')  # Add a title
 plt.xlabel('X-axis')  # Label for the x-axis
@@ -523,7 +590,29 @@ plots.plot_field(T, output_folder, show_figures, dpi, 'Temperature field')
 # Animation of the flow evolution #
 ###################################
 
-plots.animate_flow_evolution(-u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi)
+if compute_animations: 
+    plots.animate_flow_evolution(-u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi)
+
+
+#########################################################################################
+# Animation of the temperature field, the pressure field and the five species over time #
+#########################################################################################
+
+if compute_animations:
+    plots.animate_field_evolution(T_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Temperature')
+
+    plots.animate_field_evolution(P_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Pressure')
+
+    plots.animate_field_evolution(Y_n2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_N2')
+
+    plots.animate_field_evolution(Y_o2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_O2')
+
+    plots.animate_field_evolution(Y_ch4_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_CH4')
+
+    plots.animate_field_evolution(Y_h2o_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_H2O')
+
+    plots.animate_field_evolution(Y_co2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_CO2')
+
 
 
 #########################################################################
