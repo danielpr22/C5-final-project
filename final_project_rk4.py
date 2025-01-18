@@ -1,56 +1,33 @@
-import sys
-import os
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from numba import jit
+import derivatives as der
+import plotting as plots
+from constants import (
+    nb_points, dt, nb_timesteps, Lx, Ly, L_slot, L_coflow, U_slot, U_coflow, 
+    T_slot, T_coflow, dx, dy, max_iter_sor, omega, tolerance_sor, tolerance_sys, 
+    rho, nu, A, T_a, c_p, W_N2, W_O2, W_CH4, W_H2O, W_CO2, 
+    nu_ch4, nu_o2, nu_n2, nu_h2o, nu_co2, h_n2, h_o2, h_ch4, h_h2o, h_co2
+)
 
 
-# We had a problem with the path of the other module
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+#################################################
+# Input on image storage path and figure saving #
+#################################################
 
+output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_0' # Path where the images will be stored
+dpi = 300 # For storing the images with high quality
+show_figures = True # If this variable is set to false, all the images are stored in the selected path and are not shown here
 
-#############
-# Constants #
-#############
-
-nb_points = 32
-
-dt = 1e-6
-
-final_time = 1e-3
-
-nb_timesteps = int(final_time / dt)
-
-Lx, Ly = 2e-3, 2e-3
-
-L_slot, L_coflow= 0.5e-3, 0.5e-3
-
-U_slot = 1.0
-
-U_coflow = 0.2
-
-T_slot, T_coflow = 300, 300
-
-dx = Lx / (nb_points - 1)
-
-dy = Ly / (nb_points - 1)
-
-tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
-
-tolerance_sys = 1e-3 # Tolerance for the convergence of the whole system
-
-max_iter = 10000  # Maximum number of iterations for achieving convergence
-
-omega = 1.5  # Parameter for the Successive Overrelaxation Method (SOR), it must be between 1 and 2
+# To make sure that the folder exists
+os.makedirs(output_folder, exist_ok=True) 
 
 
 ##################
 # Initial fields #
 ##################
-
-x,y = np.linspace(0, Lx, nb_points), np.linspace(Ly, 0, nb_points)
-X,Y = np.meshgrid(x,y,indexing='xy')
 
 # Velocity fields
 v = np.zeros((nb_points, nb_points))
@@ -59,125 +36,23 @@ u = np.zeros((nb_points, nb_points))
 # Pressure field
 P = np.zeros((nb_points, nb_points))
 
-
-#############
-# Chemistry #
-#############
-
-rho = 1.1614 # Fluid density
-nu = 15e-6 # Kinematic viscosity
-D = nu # Schmidt number
-a = nu # Prandtl number
-A = 1.1e8
-T_a = 10000
-c_p = 1200 # J/(kg * K)
-W_N2 = 0.02802  # kg/mol
-W_O2 = 0.031999  # kg/mol
-W_CH4 = 0.016042  # kg/mol
-W_H2O = 0.018015  # kg/mol
-W_CO2 = 0.044009  # kg/mol
-
-nu_ch4 = -1
-nu_o2 = -2
-nu_n2 = 0
-nu_h2o = 2
-nu_co2 = 1
-
-h_n2 = 0
-h_o2 = 0
-h_ch4 = -74.9 # kJ/mol
-h_h2o = -241.818 # k/mol
-h_co2 = -393.52 # kJ/mol
-
 # Temperature field
 T = np.zeros((nb_points, nb_points))
-T[:, :] = 273 # Initially let's define a constant temperature field
 
 # Species fields
 Y_n2 = np.zeros((nb_points, nb_points))
 Y_o2 = np.zeros((nb_points, nb_points))
 Y_ch4 = np.zeros((nb_points, nb_points))
+Y_h2o = np.zeros((nb_points, nb_points)) # Should we put boundary conditions here?
+Y_co2 = np.zeros((nb_points, nb_points))
 
 
-#################################################
-# Derivatives and second derivatives definition #
-#################################################
-
-# Attention: the sense of the derivatives is inversed!!
-
-@jit(fastmath=True, nopython=True)
-def derivative_x_upwind(vel: np.array, a:np.array, dx=dx) -> np.array:
-    dvel_dx = np.zeros_like(vel)
-
-    # For interior points, choose upwind direction based on the sign of u
-    for i in range(1, vel.shape[1] - 1): # Skip the boundaries
-        dvel_dx[:, i] = np.where(a[:, i] > 0, (vel[:, i] - vel[:, i - 1]) / dx, (vel[:, i + 1] - vel[:, i]) / dx)
-
-    return dvel_dx
-
+##########################################
+# Successive Overrelaxation (SOR) method #
+##########################################
 
 @jit(fastmath=True, nopython=True)
-def derivative_y_upwind(vel: np.array, a:np.array, dy=dy) -> np.array:
-    dvel_dy = np.zeros_like(vel)
-
-    # For interior points, choose upwind direction based on the sign of vel
-    for i in range(1, vel.shape[0] - 1): 
-        # Differenciate between positive and negative flow
-        dvel_dy[i, :] = np.where(a[i, :] > 0, (vel[i, :] - vel[i - 1, :]) / dy, (vel[i + 1, :] - vel[i, :]) / dy)
-
-    return dvel_dy
-
-
-@jit(fastmath=True, nopython=True)
-def derivative_x_centered(u: np.array, dx=dx) -> np.array:
-    du_dx = np.zeros_like(u)
-
-    for i in range(1, nb_points - 1):
-        for j in range(1, nb_points - 1):
-            du_dx[i, j] = (u[i, j+1] - u[i, j-1]) / (2 * dx)  # Central difference
-
-    return du_dx
-
-
-@jit(fastmath=True, nopython=True)
-def derivative_y_centered(u: np.array, dy=dy) -> np.array:
-    du_dy = np.zeros_like(u)
-
-    for i in range(1, nb_points - 1):
-        for j in range(1, nb_points - 1):
-            du_dy[i, j] = (u[i+1, j] - u[i-1, j]) / (2 * dy)  # Central difference
-
-    return du_dy
-
-
-@jit(fastmath=True, nopython=True)
-def second_centered_x(u: np.array, dx=dx) -> np.array:
-    d2u_dx2 = np.zeros_like(u)
-
-    for i in range(1, nb_points - 1):
-        for j in range(1, nb_points - 1):
-            u_left = u[i, j-1]
-            u_right = u[i, j+1]
-            d2u_dx2[i, j] = (u_right - 2 * u [i, j] + u_left) / dx**2
-
-    return d2u_dx2
-
-
-@jit(fastmath=True, nopython=True)
-def second_centered_y(u: np.array, dy=dy) -> np.array:
-    d2u_dy2 = np.zeros_like(u)
-
-    for i in range(1, nb_points - 1):
-        for j in range(1, nb_points - 1):
-            u_left = u[i-1, j]
-            u_right = u[i+1, j]
-            d2u_dy2[i, j] = (u_right - 2 * u [i, j] + u_left) / dy**2
-
-    return d2u_dy2
-
-
-@jit(fastmath=True, nopython=True)
-def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
+def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
     """
     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
     Optimized using Numba
@@ -186,7 +61,7 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
         P (np.array): Initial guess for the pressure field.
         f (np.array): Right-hand side of the Poisson equation.
         tolerance (float): Convergence tolerance for the iterative method.
-        max_iter (int): Maximum number of iterations.
+        max_iter_sor (int): Maximum number of iterations.
         omega (float): Relaxation factor, between 1 and 2.
 
     Returns:
@@ -195,7 +70,7 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
 
     coef = 2 * (1 / dx**2 + 1 / dy**2)
 
-    for _ in range(max_iter):
+    for _ in range(max_iter_sor):
         P_old = P.copy()
         laplacian_P = np.zeros_like(P)
         
@@ -222,241 +97,13 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter=max_iter, omega=omega):
 
     return P
 
-# SOR method without Numba (i.e. with the print statements)
-def sor_no_numba(P, f, tolerance=tolerance_sor, max_iter=max_iter, omega=omega):
-    """
-    Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
-    Optimized using Numba
 
-    Parameters:
-        P (np.array): Initial guess for the pressure field.
-        f (np.array): Right-hand side of the Poisson equation.
-        tolerance (float): Convergence tolerance for the iterative method.
-        max_iter (int): Maximum number of iterations.
-        omega (float): Relaxation factor, between 1 and 2.
-
-    Returns:
-        np.array: Updated pressure field.
-    """
-
-    coef = 2 * (1 / dx**2 + 1 / dy**2)
-
-    for iteration in range(max_iter):
-        P_old = P.copy()
-        laplacian_P = P.copy()
-        
-        for i in range(1, nb_points - 1):
-            for j in range(1, nb_points - 1):
-                laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dx**2 + (P_old[i, j+1] + P[i, j-1]) / dy**2
-                
-                # Update P using the SOR formula
-                P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
-        
-        # Compute the residual to check for convergence
-        residual = np.linalg.norm(P - P_old, ord=2)
-        if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-            residual /= np.linalg.norm(P_old, ord=2)
-
-        if residual < tolerance:
-            print(f"SOR converged after {iteration + 1} iterations with residual {residual:.2e}.")
-            break
-    else:
-        print(f"SOR did not converge after {max_iter} iterations. Residual: {residual:.2e}")
-
-    return P
-
-
-######################################################
-# Plotting and animating the flow and the velocities #
-######################################################
-
-def plot_velocity_fields(u, v, Lx, Ly, nb_points, L_slot, L_coflow, save_path=None):
-    """
-    Plot the velocity fields u and v using colormaps, accounting for matrix indexing.
-
-    Parameters:
-        u (np.array): x-component of velocity field
-        v (np.array): y-component of velocity field
-        Lx (float): Domain length in x direction
-        Ly (float): Domain length in y direction
-        nb_points (int): Number of grid points
-        L_slot (float): Length of the slot
-        L_coflow (float): Length of the coflow region
-        save_path (str, optional): Path to save the plots
-    """
-
-    # Create a figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-    # Plot u velocity field
-    c1 = ax1.pcolormesh(X, Y, u, cmap="RdBu_r", shading="auto")
-    ax1.set_title("u-velocity field")
-    ax1.set_xlabel("x (m)")
-    ax1.set_ylabel("y (m)")
-    plt.colorbar(c1, ax=ax1, label="Velocity (m/s)")
-
-    # Add lines to show slot and coflow regions
-    ax1.axvline(x=L_slot, color="k", linestyle="--", alpha=0.5)
-    ax1.axvline(x=L_slot + L_coflow, color="k", linestyle="--", alpha=0.5)
-
-    # Plot v velocity field
-    c2 = ax2.pcolormesh(X, Y, v, cmap="RdBu_r", shading="auto")
-    ax2.set_title("v-velocity field")
-    ax2.set_xlabel("x (m)")
-    ax2.set_ylabel("y (m)")
-    plt.colorbar(c2, ax=ax2, label="Velocity (m/s)")
-
-    # Add lines to show slot and coflow regions
-    ax2.axvline(x=L_slot, color="k", linestyle="--", alpha=0.5)
-    ax2.axvline(x=L_slot + L_coflow, color="k", linestyle="--", alpha=0.5)
-
-    # Add text annotations for the regions
-    def add_region_labels(ax):
-        ax.text(L_slot / 2, Ly - 0.1e-3, "Slot", ha="center")
-        ax.text(L_slot + L_coflow / 2, Ly - 0.1e-3, "Coflow", ha="center")
-        ax.text(
-            L_slot + L_coflow + (Lx - L_slot - L_coflow) / 2,
-            Ly - 0.1e-3,
-            "External",
-            ha="center",
-        )
-
-    add_region_labels(ax1)
-    add_region_labels(ax2)
-
-    plt.tight_layout()
-
-    if save_path:
-        plt.savefig(save_path)
-
-    
-    
-    plt.show()
-
-
-def plot_vector_field(u: np.array, v: np.array):
-    plt.quiver(X*1e3,Y*1e3,u,v,scale=10)
-    plt.title('Initial velocity field configuration')
-    plt.xlabel('Lx (mm)')
-    plt.ylabel('Ly (mm)')
-    
-    plt.show()
-
-
-def animate_flow_evolution(
-    u_history,
-    v_history,
-    Lx,
-    Ly,
-    nb_points,
-    L_slot,
-    L_coflow,
-    interval=1500,
-    skip_frames=2,
-    save_path='C:\\Users\\danie\\Desktop\\animation.gif',
-):
-    """
-    Create a slower animation of the flow evolution over time, accounting for matrix indexing.
-
-    Parameters:
-        u_history (list): List of u velocity fields at different timesteps
-        v_history (list): List of v velocity fields at different timesteps
-        Lx (float): Domain length in x direction
-        Ly (float): Domain length in y direction
-        nb_points (int): Number of grid points
-        L_slot (float): Length of the slot
-        L_coflow (float): Length of the coflow region
-        interval (int): Interval between frames in milliseconds (default: 200ms for slower animation)
-        skip_frames (int): Number of frames to skip between each animation frame (default: 2)
-        save_path (str, optional): Path to save the animation
-    """
-    from matplotlib.animation import FuncAnimation
-
-    # Create coordinate meshgrid with reversed y-axis for matrix indexing
-    x = np.linspace(0, Lx, nb_points)
-    y = np.linspace(Ly, 0, nb_points)  # Reversed for matrix indexing
-    X, Y = np.meshgrid(x, y)
-
-    # Create figure and subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-    # Calculate value ranges for consistent colorbars
-    u_min = min(np.min(u) for u in u_history)
-    u_max = max(np.max(u) for u in u_history)
-    v_min = min(np.min(v) for v in v_history)
-    v_max = max(np.max(v) for v in v_history)
-
-    # Initialize plots with consistent color scales
-    c1 = ax1.pcolormesh(
-        X, Y, u_history[0], cmap="RdBu_r", shading="auto", vmin=u_min, vmax=u_max
-    )
-    ax1.set_title("u-velocity field")
-    ax1.set_xlabel("x (m)")
-    ax1.set_ylabel("y (m)")
-    plt.colorbar(c1, ax=ax1, label="Velocity (m/s)")
-
-    # Add reference lines and labels for regions
-    ax1.axvline(x=L_slot, color="k", linestyle="--", alpha=0.5)
-    ax1.axvline(x=L_slot + L_coflow, color="k", linestyle="--", alpha=0.5)
-    ax1.text(L_slot / 2, Ly - 0.1e-3, "Slot", ha="center")
-    ax1.text(L_slot + L_coflow / 2, Ly - 0.1e-3, "Coflow", ha="center")
-    ax1.text(
-        L_slot + L_coflow + (Lx - L_slot - L_coflow) / 2,
-        Ly - 0.1e-3,
-        "External",
-        ha="center",
-    )
-
-    c2 = ax2.pcolormesh(
-        X, Y, v_history[0], cmap="RdBu_r", shading="auto", vmin=v_min, vmax=v_max
-    )
-    ax2.set_title("v-velocity field")
-    ax2.set_xlabel("x (m)")
-    ax2.set_ylabel("y (m)")
-    plt.colorbar(c2, ax=ax2, label="Velocity (m/s)")
-
-    # Add reference lines and labels for regions
-    ax2.axvline(x=L_slot, color="k", linestyle="--", alpha=0.5)
-    ax2.axvline(x=L_slot + L_coflow, color="k", linestyle="--", alpha=0.5)
-    ax2.text(L_slot / 2, Ly - 0.1e-3, "Slot", ha="center")
-    ax2.text(L_slot + L_coflow / 2, Ly - 0.1e-3, "Coflow", ha="center")
-    ax2.text(
-        L_slot + L_coflow + (Lx - L_slot - L_coflow) / 2,
-        Ly - 0.1e-3,
-        "External",
-        ha="center",
-    )
-
-    # Add timestamp text
-    timestamp = ax1.text(
-        0.02, 1.02, f"Frame: 0/{len(u_history)}", transform=ax1.transAxes
-    )
-
-    # Take every nth frame for smoother, slower animation
-    frame_indices = range(0, len(u_history), skip_frames)
-
-    def update(frame_idx):
-        frame = frame_indices[frame_idx]
-        c1.set_array(u_history[frame].ravel())
-        c2.set_array(v_history[frame].ravel())
-        timestamp.set_text(f"Frame: {frame}/{len(u_history)}")
-        return c1, c2, timestamp
-
-    plt.tight_layout()
-
-    anim = FuncAnimation(
-        fig, update, frames=len(frame_indices), interval=interval, blit=True
-    )
-
-    if save_path:
-        anim.save(save_path, writer="pillow")
-    
-    
-    plt.show()
-
+#######################
+# Boundary conditions #
+#######################
 
 @jit(fastmath=True, nopython=True)
-def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
+def boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
     u[:, 1] = 0 # Left slipping wall
@@ -474,6 +121,11 @@ def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
     v[:, 1] = v[:, 2] # dv/dx = 0 at the left wall
     v[:, -1] = v[:, -2] # dv/dx = 0 at the right free limit
 
+    T[0, 1 : int(L_slot / Lx * nb_points) + 1] = T_slot
+    T[-1, 1 : int(L_slot / Lx * nb_points) + 1] = T_slot
+    T[0, int(L_slot / Lx * nb_points) + 1 : int((L_slot + L_coflow) / Lx * nb_points)] = T_coflow
+    T[-1, int(L_slot / Lx * nb_points) + 1 : int((L_slot + L_coflow) / Lx * nb_points)] = T_coflow
+
     Y_n2[-1, 1 : int(L_slot / Lx * nb_points) + 1] = 0.767 # Initial condition for the nitrogen in air (bottom slot)
     Y_n2[0, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
     Y_n2[-1, int(L_slot / Lx * nb_points) : int((L_slot + L_coflow) / Lx * nb_points)] = 1
@@ -482,31 +134,17 @@ def boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4):
 
     Y_ch4[0, 1 : int(L_slot / Lx * nb_points) + 1] = 1
 
-    return u, v, Y_n2, Y_o2, Y_ch4
+    return u, v, T, Y_n2, Y_o2, Y_ch4
 
 
-@jit(fastmath=True, nopython=True)
-def update_Y_k(Y_k : np.array, u: np.array, v: np.array, source_term: np.array):
-    """The advection terms are solved following central differences, and the diffusion terms
-    following second-order central differences
-    """
-    Y_k_updated = np.zeros_like(Y_k)
-    derivative_x = derivative_x_centered(Y_k)
-    derivative_y = derivative_y_centered(Y_k)
-    second_derivative_x = second_centered_x(Y_k)
-    second_derivative_y = second_centered_y(Y_k)
-
-    for i in (1, nb_points-1): 
-        for j in (1, nb_points-1):
-            Y_k_updated[i, j] = Y_k[i, j] - dt * (u[i, j] * derivative_x[i,j] + v[i, j] * derivative_y[i, j]) + dt * nu * (second_derivative_x[i, j] + second_derivative_y[i, j]) + dt * source_term[i, j]
-
-    return Y_k_updated
-
+#########################
+# First step of the RK4 #
+#########################
 
 @jit(fastmath=True, nopython=True)
 def compute_rhs_first_u(u : np.array, v : np.array):
-    derivative_x = derivative_x_centered(u)
-    derivative_y = derivative_y_centered(u)
+    derivative_x = der.derivative_x_centered(u)
+    derivative_y = der.derivative_y_centered(u)
 
     rhs = (
         u * derivative_x + v * derivative_y
@@ -514,10 +152,11 @@ def compute_rhs_first_u(u : np.array, v : np.array):
     
     return rhs
 
+
 @jit(fastmath=True, nopython=True)
 def compute_rhs_first_v(u : np.array, v : np.array):
-    derivative_x = derivative_x_centered(v)
-    derivative_y = derivative_y_centered(v)
+    derivative_x = der.derivative_x_centered(v)
+    derivative_y = der.derivative_y_centered(v)
 
     rhs = (
         u * derivative_x + v * derivative_y
@@ -536,6 +175,7 @@ def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
 
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
+
 @jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
     
@@ -547,10 +187,14 @@ def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
+##########################
+# Second step of the RK4 #
+##########################
+
 @jit(fastmath=True, nopython=True)
 def compute_rhs_second(u : np.array):
-    second_derivative_x = second_centered_x(u)
-    second_derivative_y = second_centered_y(u)
+    second_derivative_x = der.second_centered_x(u)
+    second_derivative_y = der.second_centered_y(u)
 
     rhs = (
         nu * (second_derivative_x + second_derivative_y)
@@ -568,14 +212,29 @@ def rk4_second_step_frac(u : np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
+#################################################
+# Fourth step of the RK4 (the third one is SOR) #
+#################################################
+
 @jit(fastmath=True, nopython=True)
 def compute_rhs_u(P : np.array):
-    derivative_x = derivative_x_centered(P)
+    derivative_x = der.derivative_x_centered(P)
 
     rhs = (
         derivative_x
     )
     return rhs
+
+
+@jit(fastmath=True, nopython=True)
+def compute_rhs_v(P):
+    derivative_y = der.derivative_y_centered(P)
+
+    rhs = (
+        derivative_y
+    )
+    return rhs
+
 
 @jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_u(P : np.array, dt = dt):
@@ -589,16 +248,6 @@ def rk4_fourth_step_frac_u(P : np.array, dt = dt):
 
 
 @jit(fastmath=True, nopython=True)
-def compute_rhs_v(P):
-    derivative_y = derivative_y_centered(P)
-
-    rhs = (
-        derivative_y
-    )
-    return rhs
-
-
-@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     
     k1 = compute_rhs_v(P)
@@ -609,13 +258,16 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
+#######################################
+# Solving species transport using RK4 #
+#######################################
 
 @jit(fastmath=True, nopython=True)
 def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
-    derivative_x = derivative_x_centered(Y_k)
-    derivative_y = derivative_y_centered(Y_k)
-    second_derivative_x = second_centered_x(Y_k)
-    second_derivative_y = second_centered_y(Y_k)
+    derivative_x = der.derivative_x_centered(Y_k)
+    derivative_y = der.derivative_y_centered(Y_k)
+    second_derivative_x = der.second_centered_x(Y_k)
+    second_derivative_y = der.second_centered_y(Y_k)
 
     rhs = (
         -u * derivative_x
@@ -624,6 +276,7 @@ def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
         + source_term
     )
     return rhs
+
 
 @jit(fastmath=True, nopython=True)
 def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
@@ -651,50 +304,6 @@ def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
 ##########################
 # Fractional-step method #
 ##########################
-
-@jit(fastmath=True, nopython=True)
-def system_evolution_kernel(u, v, P, Y_n2, Y_o2, Y_ch4):
-    
-    # Step 1
-    u_star = u - dt * (u * derivative_x_centered(u) + v * derivative_y_centered(u))
-    v_star = v - dt * (u * derivative_x_centered(v) + v * derivative_y_centered(v))
-    
-    # Species transport 
-    concentration_ch4 = rho / W_CH4 * Y_ch4
-    concentration_o2 = rho / W_O2 * Y_o2
-    Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
-    source_term_n2 = nu_n2 / rho * W_N2 * Q
-    source_term_o2 = nu_o2 / rho * W_O2 * Q
-    source_term_ch4 = nu_ch4 / rho * W_CH4 * Q
-
-    Y_n2_new = update_Y_k(Y_n2, u, v, source_term_n2)
-
-    Y_o2_new = update_Y_k(Y_o2, u, v, source_term_o2)
-
-    Y_ch4_new = update_Y_k(Y_ch4, u, v, source_term_ch4)
-
-
-    # Step 2
-    u_double_star = u_star + dt * (nu * (second_centered_x(u_star) + second_centered_y(u_star)))
-    v_double_star = v_star + dt * (nu * (second_centered_x(v_star) + second_centered_y(v_star)))
-
-
-    # Step 3 (P is updated)
-    P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star) + derivative_y_centered(v_double_star)))
-
-    # Step 4
-    u_new = u_double_star - dt / rho * derivative_x_centered(P)
-    v_new = v_double_star - dt / rho * derivative_y_centered(P)
-
-    u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new)
-
-    P[:, 0] = 0
-    P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-    P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
-    P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-    P[:, -1] = 0 # P = 0 at the right free limit
-
-    return u_new, v_new, P, Y_n2_new, Y_o2_new, Y_ch4_new
 
 @jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
@@ -734,14 +343,14 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     v_double_star = v_star + dt * rk4_second_step_frac(v_star)
 
     # Step 3 (P is updated)
-    P = sor(P, f=rho / dt * (derivative_x_centered(u_double_star) + derivative_y_centered(v_double_star)))
+    P = sor(P, f=rho / dt * (der.derivative_x_centered(u_double_star) + der.derivative_y_centered(v_double_star)))
 
     # Step 4
     u_new = u_double_star - dt / rho * rk4_fourth_step_frac_u(P)
     v_new = v_double_star - dt / rho * rk4_fourth_step_frac_v(P)
 
     # Boundary conditions
-    u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, Y_n2_new, Y_o2_new, Y_ch4_new)
+    u_new, v_new, T, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(u_new, v_new, T, Y_n2_new, Y_o2_new, Y_ch4_new)
 
     P[:, 0] = 0
     P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
@@ -751,53 +360,21 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
         
     return u_new, v_new, P, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
 
-@jit(fastmath=True, nopython=True)
-def compute_rhs_u_field(u, v, nu, dx, dy):
-    """
-    Compute the RHS of the advection-diffusion equation for u.
-    """
-    adv_x = u * derivative_x_centered(u, dx)
-    adv_y = v * derivative_y_centered(u, dy)
-    diff_x = nu * second_centered_x(u, dx)
-    diff_y = nu * second_centered_y(u, dy)
-    return -(adv_x + adv_y) + (diff_x + diff_y)
 
-@jit(fastmath=True, nopython=True)
-def compute_rhs_v_field(u, v, nu=nu, dx=dx, dy=dy):
-    """
-    Compute the RHS of the advection-diffusion equation for v.
-    """
-    adv_x = u * derivative_x_centered(v, dx)
-    adv_y = v * derivative_y_centered(v, dy)
-    diff_x = nu * second_centered_x(v, dx)
-    diff_y = nu * second_centered_y(v, dy)
-    return -(adv_x + adv_y) + (diff_x + diff_y)
-
-@jit(fastmath=True, nopython=True)
-def rk4_velocity(u, v, nu, dx, dy, dt):
-    """
-    Perform a single RK4 time step for the velocity fields u and v.
-    """
-    # RK4 for u
-    k1_u = dt * compute_rhs_u_field(u, v, nu, dx, dy)
-    k2_u = dt * compute_rhs_u_field(u + 0.5 * k1_u, v, nu, dx, dy)
-    k3_u = dt * compute_rhs_u_field(u + 0.5 * k2_u, v, nu, dx, dy)
-    k4_u = dt * compute_rhs_u_field(u + k3_u, v, nu, dx, dy)
-    u_new = u + (k1_u + 2 * k2_u + 2 * k3_u + k4_u) / 6
-
-    # RK4 for v
-    k1_v = dt * compute_rhs_v_field(u, v, nu, dx, dy)
-    k2_v = dt * compute_rhs_v_field(u, v + 0.5 * k1_v, nu, dx, dy)
-    k3_v = dt * compute_rhs_v_field(u, v + 0.5 * k2_v, nu, dx, dy)
-    k4_v = dt * compute_rhs_v_field(u, v + k3_v, nu, dx, dy)
-    v_new = v + (k1_v + 2 * k2_v + 2 * k3_v + k4_v) / 6
-
-    return u_new, v_new
 
 
 #######################################
 # Plotting the initial velocity field #
 #######################################
+
+u, v, T, Y_n2, Y_o2, Y_ch4 = boundary_conditions(u, v, T, Y_n2, Y_o2, Y_ch4)
+
+plots.plot_vector_field(u, v, output_folder, dpi)
+
+
+#############
+# Main loop #
+#############
 
 # Lists to store velocity fields at different timesteps
 u_history = []
@@ -806,21 +383,19 @@ strain_rate_history = []
 Y_n2_history = []
 Y_o2_history = []
 Y_ch4_history = []
-
-u, v, Y_n2, Y_o2, Y_ch4 = boundary_conditions(u, v, Y_n2, Y_o2, Y_ch4)
-
-plot_vector_field(u, v)
+Y_h2o_history = []
+Y_co2_history = []
 
 for it in tqdm(range(nb_timesteps)):
 
-    u_new, v_new, P, T, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, Y_n2, Y_o2, Y_ch4)
+    u_new, v_new, P, T, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_ch4)
 
-    # residual = np.linalg.norm(v - v_new, ord=2)
-    # if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-    #     residual /= np.linalg.norm(v, ord=2)
+    residual = np.linalg.norm(v - v_new, ord=2) # For example, with the v-field
+    if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+        residual /= np.linalg.norm(v, ord=2)
 
-    # if residual < tolerance_sys:
-    #     break
+    if residual < tolerance_sys:
+        break
 
     # Updating of the new fields
     u = np.copy(u_new)
@@ -828,9 +403,11 @@ for it in tqdm(range(nb_timesteps)):
     Y_n2 = np.copy(Y_n2_new)
     Y_o2 = np.copy(Y_o2_new)
     Y_ch4 = np.copy(Y_ch4_new)
+    Y_h2o = np.copy(Y_h2o_new)
+    Y_co2 = np.copy(Y_co2_new)
 
-    # Strain rate
-    strain_rate = np.abs(derivative_y_centered(v))
+    # Strain rate calculation
+    strain_rate = np.abs(der.derivative_y_centered(v))
     max_strain_rate = np.max(strain_rate[:, 1])
 
     if it % 1 == 0:
@@ -840,16 +417,25 @@ for it in tqdm(range(nb_timesteps)):
         Y_n2_history.append(Y_n2.copy())
         Y_o2_history.append(Y_o2.copy())
         Y_ch4_history.append(Y_ch4.copy())
+        Y_h2o_history.append(Y_h2o.copy())
+        Y_co2_history.append(Y_co2.copy())
+
 
 
 #########################
 # Strain rate over time #
 #########################
+
 plt.plot(strain_rate_history)
 plt.title('Maximum strain rate on the left wall function of the number of iterations')
 plt.yscale('log')
+filename = 'Strain rate'
+plt.savefig(os.path.join(output_folder, filename), dpi = dpi)
 
-plt.show()
+if show_figures: 
+    plt.show()
+else:
+    plt.close()
 
 
 ########################
@@ -862,20 +448,25 @@ plt.colorbar(label='Value')  # Add a colorbar with a label
 plt.title('Pressure field')  # Add a title
 plt.xlabel('X-axis')  # Label for the x-axis
 plt.ylabel('Y-axis')  # Label for the y-axis
+filename = 'Pressure field'
+plt.savefig(os.path.join(output_folder, filename), dpi = dpi)
 
-plt.show()
-
+if show_figures: 
+    plt.show()
+else:
+    plt.close()
 
 #####################################
 # Final velocity fields (magnitude) #
 #####################################
 
-plot_velocity_fields(-u_history[-1], v_history[-1], Lx, Ly, nb_points, L_slot, L_coflow)
+plots.plot_velocity_fields(-u_history[-1], v_history[-1], Lx, Ly, L_slot, L_coflow, show_figures, dpi, 'Final velocity fields', output_folder)
 
 
 #####################################
 # Final velocity fields (direction) #
 #####################################
+
 x = np.linspace(0, Lx, nb_points)
 y = np.linspace(Ly, 0, nb_points)
 X, Y = np.meshgrid(x, y,indexing='xy')
@@ -884,47 +475,56 @@ plt.xlim(0, Lx)
 plt.ylim(0, Ly)
 plt.xlabel("X")
 plt.ylabel("Y")
-plt.title("Vector Velocity Field")
-plt.show()
+plt.title("Flow Field")
+filename = 'Final velocity fields (direction)'
+plt.savefig(os.path.join(output_folder, filename), dpi = dpi)
 
+if show_figures: 
+    plt.show()
+else:
+    plt.close()
 
 ##############################
 # Final species distribution #
 ##############################
 
-plt.figure(figsize=(6, 5))
-plt.imshow(Y_n2_history[-1], cmap='viridis')  # Display the data as an image
-plt.colorbar(label='Value')  # Add a colorbar with a label
-plt.title('Y_N2 at the steady state')  # Add a title
-plt.xlabel('X-axis')  # Label for the x-axis
-plt.ylabel('Y-axis')  # Label for the y-axis
-plt.show()
+plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_N2 (steady)')
+plots.plot_field(Y_o2_history[-1], output_folder, show_figures, dpi, 'Y_O2 (steady)')
+plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_CH4 (steady)')
+plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_H2O (steady)')
+plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_CO2 (steady)')
 
-plt.figure(figsize=(6, 5))
-plt.imshow(Y_o2_history[-1], cmap='viridis')  # Display the data as an image
-plt.colorbar(label='Value')  # Add a colorbar with a label
-plt.title('Y_O2 at the steady state')  # Add a title
-plt.xlabel('X-axis')  # Label for the x-axis
-plt.ylabel('Y-axis')  # Label for the y-axis
-plt.show()
 
-plt.figure(figsize=(6, 5))
-plt.imshow(Y_ch4_history[-1], cmap='viridis')  # Display the data as an image
-plt.colorbar(label='Value')  # Add a colorbar with a label
-plt.title('Y_CH4 at the steady state')  # Add a title
-plt.xlabel('X-axis')  # Label for the x-axis
-plt.ylabel('Y-axis')  # Label for the y-axis
-plt.show()
+###########################
+# Final temperature field #
+###########################
 
-#animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
+plots.plot_field(T, output_folder, show_figures, dpi, 'Temperature field')
 
-closest_index_top = np.abs(Y_n2_history[-1][:, 1] - 0.9 * Y_n2_history[0][-1, 1]).argmin()
-closest_index_bottom = np.abs(Y_n2_history[-1][:, 1] - 0.1 * Y_n2_history[0][-1, 1]).argmin()
-length_diffusion = closest_index_bottom / nb_points * Lx - closest_index_top / nb_points * Lx
 
-# Once the u field is correctly advected, we calculate "a"
-strain_rate = np.abs(derivative_y_centered(v))
+###################################
+# Animation of the flow evolution #
+###################################
 
+plots.animate_flow_evolution(u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow)
+
+
+#########################################################################
+# (Question 3.1) Calculation of the maximum strain rate at steady state #
+#########################################################################
+
+strain_rate = np.abs(der.derivative_y_centered(v))
 max_strain_rate = np.max(strain_rate[:, 1])
 
 print(f"Maximum strain rate (|∂v/∂y|) on left wall: {max_strain_rate:.6f} s^-1")
+
+
+#######################################################################################################
+# (Question 3.2) Measure of the thickness of the N2 diffusion region in the left wall at steady state #
+#######################################################################################################
+
+closest_index_top = np.abs(Y_n2_history[-1][:, 1] - 0.9 * Y_n2_history[0][-1, 1]).argmin()
+closest_index_bottom = np.abs(Y_n2_history[-1][:, 1] - 0.1 * Y_n2_history[0][-1, 1]).argmin()
+length_diffusion_n2 = closest_index_bottom / nb_points * Lx - closest_index_top / nb_points * Lx
+
+print(f"The length of the diffusion region for N2 in the left wall is: {length_diffusion_n2}")
