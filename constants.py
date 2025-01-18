@@ -2,8 +2,8 @@
 # Constants #
 #############
 
-nb_points = 32
-dt = 1e-9
+nb_points = 64
+dt = 1e-6
 final_time = 1
 nb_timesteps = int(final_time / dt)
 Lx, Ly = 2e-3, 2e-3
@@ -20,7 +20,7 @@ omega = 1.5  # Parameter for the Successive Overrelaxation Method (SOR), it must
 ##################################
 
 tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
-tolerance_sys = 1e-3 # Tolerance for the convergence of the whole system
+tolerance_sys = 1e-5 # Tolerance for the convergence of the whole system
 
 #############
 # Chemistry #

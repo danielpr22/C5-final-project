@@ -18,7 +18,7 @@ from constants import (
 #################################################
 
 # Path where the images will be stored (the name of the folder is specified at the end of the string)
-output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_1' 
+output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_3' 
 dpi = 300 # For storing the images with high quality
 show_figures = False # If this variable is set to false, all the images are stored in the selected path and are not shown here
 
@@ -39,13 +39,14 @@ P = np.zeros((nb_points, nb_points))
 
 # Temperature field
 T = np.zeros((nb_points, nb_points))
+T[:, :] = 273 # We apply a constant field everywhere before applying the boundary conditions to avoid division by 0 in the exponential
 
 # Species fields
 Y_n2 = np.zeros((nb_points, nb_points))
-Y_o2 = np.zeros((nb_points, nb_points))
-Y_ch4 = np.zeros((nb_points, nb_points))
+Y_o2 = np.zeros((nb_points, nb_points)) 
+Y_ch4 = np.zeros((nb_points, nb_points)) 
 Y_h2o = np.zeros((nb_points, nb_points)) # Should we put boundary conditions here?
-Y_co2 = np.zeros((nb_points, nb_points))
+Y_co2 = np.zeros((nb_points, nb_points)) 
 
 
 ##########################################
