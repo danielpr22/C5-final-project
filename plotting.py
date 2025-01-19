@@ -14,10 +14,10 @@ from constants import (
 x,y = np.linspace(0, Lx, nb_points), np.linspace(Ly, 0, nb_points) # For the quiver methods 
 X,Y = np.meshgrid(x,y,indexing='xy')
 
-######################################################
-# Plotting and animating the flow and the velocities #
-######################################################
 
+##########################################################################
+# Plotting of the magnitude of a flow field in space at a given timestep #
+##########################################################################
 
 def plot_velocity_fields(u, v, Lx, Ly, show_figures, dpi, filename, output_folder=None, L_slot=L_slot, L_coflow=L_coflow):
     """
@@ -84,6 +84,10 @@ def plot_velocity_fields(u, v, Lx, Ly, show_figures, dpi, filename, output_folde
         plt.close()
 
 
+##########################################
+# Plotting of a vector field with quiver #
+##########################################
+
 def plot_vector_field(u: np.array, v: np.array, output_folder, dpi, filename='Flow field'):
     output_folder = os.path.join(output_folder, filename)
 
@@ -95,11 +99,16 @@ def plot_vector_field(u: np.array, v: np.array, output_folder, dpi, filename='Fl
     plt.close()
 
 
+#################################################################
+# Field animation over time, for the flow and for a given field #
+#################################################################
+
 def animate_flow_evolution(u_history, v_history, Lx, Ly,
                            nb_points, L_slot, L_coflow, output_folder, 
-                           dpi, interval=100, skip_frames=20):
+                           dpi, show_animations, interval=100, skip_frames=int(nb_timesteps / 100)):
     """
-    Create a slower animation of the flow evolution over time, accounting for matrix indexing.
+    Create a slower animation of the flow evolution over time, accounting for matrix indexing. We skip a certain number of frames to have 100 frames
+    in the end, independently of the number of timesteps, so the animation does not take very long to generate.
 
     Parameters:
         u_history (list): List of u velocity fields at different timesteps
@@ -196,13 +205,17 @@ def animate_flow_evolution(u_history, v_history, Lx, Ly,
     if output_folder:
         anim.save(os.path.join(output_folder, filename), dpi = dpi, writer="pillow")
     
-    plt.show()
+    if show_animations: 
+        plt.show()
+    else:
+        plt.close()
 
 
 def animate_field_evolution(field_history, Lx, Ly, nb_points, L_slot, L_coflow, 
-                            output_folder, dpi, field_name, interval=100, skip_frames=20):
+                            output_folder, dpi, show_animations, field_name, interval=100, skip_frames=int(nb_timesteps / 100)):
     """
-    Create an animation of the evolution of a single field over time.
+    Create an animation of the evolution of a single field over time. We skip a certain number of frames to have 100 frames
+    in the end, independently of the number of timesteps, so the animation does not take very long to generate.
 
     Parameters:
         field_history (list): List of field values at different timesteps.
@@ -275,8 +288,16 @@ def animate_field_evolution(field_history, Lx, Ly, nb_points, L_slot, L_coflow,
     if output_folder:
         anim.save(os.path.join(output_folder, filename), dpi=dpi, writer="pillow")
     
-    plt.show()
+    if show_animations: 
+        plt.show()
+    else:
+        plt.close()
 
+
+
+#################################################
+# Plotting of a given field at a given timestep #
+#################################################
 
 def plot_field(Y_k : np.array, output_folder, show_figures, dpi, filename):
 

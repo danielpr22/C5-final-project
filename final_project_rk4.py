@@ -18,15 +18,15 @@ from constants import (
 #################################################
 
 # Path where the images will be stored (the name of the folder is specified at the end of the string)
-output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_12' 
+output_folder  = 'C:\\Users\\danie\\Desktop\\Code results\\run_18' 
 dpi = 100 # For storing the images with high quality
 show_figures = False # If this variable is set to false, all the images are stored in the selected path and are not shown here
-compute_animations = True
+show_animations = False
 
 # If this variable is set to true, the calculation will stop to evolve when the tolerance for convergence is reached.
 # If it is set to False, the calculation will stop at the given final_time
-convergence_by_tolerance = False 
-convergence_by_tolerance_chem = False
+convergence_by_tolerance = True 
+convergence_by_tolerance_chem = True
 
 # To make sure that the folder exists
 os.makedirs(output_folder, exist_ok=True) 
@@ -61,104 +61,46 @@ Y_co2 = np.zeros((nb_points, nb_points))
 # Successive Overrelaxation (SOR) method #
 ##########################################
 
-# @jit(fastmath=True, nopython=True)
-# def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
-#     """
-#     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
-#     Optimized using Numba
-
-#     Parameters:
-#         P (np.array): Initial guess for the pressure field.
-#         f (np.array): Right-hand side of the Poisson equation.
-#         tolerance (float): Convergence tolerance for the iterative method.
-#         max_iter_sor (int): Maximum number of iterations.
-#         omega (float): Relaxation factor, between 1 and 2.
-
-#     Returns:
-#         np.array: Updated pressure field.
-#     """
-
-#     coef = 2 * (1 / dx**2 + 1 / dy**2)
-
-#     for _ in range(max_iter_sor):
-#         P_old = P.copy()
-#         laplacian_P = np.zeros_like(P)
-        
-#         for i in range(1, nb_points - 1):
-#             for j in range(1, nb_points - 1):
-#                 laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dy**2 + (P_old[i, j+1] + P[i, j-1]) / dx**2
-                
-#                 # Update P using the SOR formula
-#                 P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
-
-#         P[:, 0] = 0
-#         P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
-#         P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
-#         P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-#         P[:, -1] = 0 # P = 0 at the right free limit
-        
-#         # Compute the residual to check for convergence
-#         residual = np.linalg.norm(P - P_old, ord=2)
-#         if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-#             residual /= np.linalg.norm(P_old, ord=2)
-
-#         if residual < tolerance_sor:
-#             break
-
-#     return P
-
-
-
 @jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
     """
-    Vectorized Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
-    Optimized using Numba.
+    Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
+    Optimized using Numba
 
     Parameters:
         P (np.array): Initial guess for the pressure field.
         f (np.array): Right-hand side of the Poisson equation.
-        tolerance_sor (float): Convergence tolerance for the iterative method.
+        tolerance (float): Convergence tolerance for the iterative method.
         max_iter_sor (int): Maximum number of iterations.
         omega (float): Relaxation factor, between 1 and 2.
-        dx, dy (float): Grid spacing in x and y directions.
-        nb_points (int): Number of grid points in each dimension.
 
     Returns:
         np.array: Updated pressure field.
     """
+
     coef = 2 * (1 / dx**2 + 1 / dy**2)
-    P_old = np.zeros_like(P)
 
     for _ in range(max_iter_sor):
-        # Copy current pressure to P_old
-        P_old[:, :] = np.copy(P)
+        P_old = P.copy()
         laplacian_P = np.zeros_like(P)
-
-
-        # Compute the Laplacian for all interior points at once
-        laplacian_P = (
-            (P_old[2:, 1:-1] + P[:-2, 1:-1]) / dy**2 +
-            (P_old[1:-1, 2:] + P[1:-1, :-2]) / dx**2
-        )
-
-        # Update pressure field for interior points using the SOR formula
-        P[1:-1, 1:-1] = (
-            (1 - omega) * P_old[1:-1, 1:-1] +
-            (omega / coef) * (laplacian_P - f[1:-1, 1:-1])
-        )
+        
+        for i in range(1, nb_points - 1):
+            for j in range(1, nb_points - 1):
+                laplacian_P[i, j] = (P_old[i+1, j] + P[i-1, j]) / dy**2 + (P_old[i, j+1] + P[i, j-1]) / dx**2
+                
+                # Update P using the SOR formula
+                P[i, j] = (1 - omega) * P_old[i, j] + (omega / coef) * (laplacian_P[i, j] - f[i, j])
 
         P[:, 0] = 0
         P[:, 1] = P[:, 2] # dP/dx = 0 at the left wall
         P[0, 1:] = P[1, 1:] # dP/dy = 0 at the top wall
         P[-1, 1:] = P[-2, 1:] # dP/dy = 0 at the bottom wall
-        P[:, -1] = 0
-
-        # Compute residual norm
-        residual = np.sqrt(np.sum((P - P_old)**2))
-        norm_P_old = np.sqrt(np.sum(P_old**2))
-        if norm_P_old > 1e-10:
-            residual /= norm_P_old
+        P[:, -1] = 0 # P = 0 at the right free limit
+        
+        # Compute the residual to check for convergence
+        residual = np.linalg.norm(P - P_old, ord=2)
+        if np.linalg.norm(P_old, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+            residual /= np.linalg.norm(P_old, ord=2)
 
         if residual < tolerance_sor:
             break
@@ -337,7 +279,7 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 #######################################
 
 @jit(fastmath=True, nopython=True)
-def compute_rhs_Y_k(Y_k : np.array, u : np.array, v : np.array, source_term: np.array):
+def compute_rhs_Y_k(Y_k : np.array, u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(Y_k)
     derivative_y = der.derivative_y_centered(Y_k)
     second_derivative_x = der.second_centered_x(Y_k)
@@ -347,9 +289,9 @@ def compute_rhs_Y_k(Y_k : np.array, u : np.array, v : np.array, source_term: np.
         -u * derivative_x
         - v * derivative_y
         + nu * (second_derivative_x + second_derivative_y)
-        + source_term
     )
     return rhs
+
 
 @jit(fastmath=True, nopython=True)
 def compute_rhs_Y_k_chem(Y_k : np.array, source_term: np.array):
@@ -369,7 +311,7 @@ def compute_rhs_Y_k_chem(Y_k : np.array, source_term: np.array):
 
 
 @jit(fastmath=True, nopython=True)
-def rk4_step_Y_k(Y_k : np.array, u : np. array, source_term: np.array, dt=dt):
+def rk4_step_Y_k(Y_k : np.array, u : np. array, v: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
 
@@ -383,10 +325,10 @@ def rk4_step_Y_k(Y_k : np.array, u : np. array, source_term: np.array, dt=dt):
         np.array: Updated scalar field after one RK4 step.
     """
 
-    k1 = compute_rhs_Y_k(Y_k, u, v, source_term)
-    k2 = compute_rhs_Y_k(Y_k + 0.5 * dt * k1, u, v, source_term)
-    k3 = compute_rhs_Y_k(Y_k + 0.5 * dt * k2, u, v, source_term)
-    k4 = compute_rhs_Y_k(Y_k + dt * k3, u, v, source_term)
+    k1 = compute_rhs_Y_k(Y_k, u, v)
+    k2 = compute_rhs_Y_k(Y_k + 0.5 * dt * k1, u, v)
+    k3 = compute_rhs_Y_k(Y_k + 0.5 * dt * k2, u, v)
+    k4 = compute_rhs_Y_k(Y_k + dt * k3, u, v)
 
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
@@ -449,7 +391,7 @@ def system_evolution_kernel_rk4_chem(T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     T_new = T + dt * rk4_step_Y_k_chem(T, source_term_T) # The Y_k method can also be used for T!
 
     # Boundary conditions (we are only interested here in applying this function to T and the concerned species)
-    _, _, _, T_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(np.zeros_like(T), np.zeros_like(T), np.zeros_like(T), 
+    _, _, _, T_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(T, T, T, 
                                                                         T, Y_n2_new, Y_o2_new, Y_ch4_new)
         
     return T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
@@ -461,32 +403,14 @@ def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     u_star = u - dt * rk4_first_step_frac_u(u, v)
     v_star = v - dt * rk4_first_step_frac_v(u, v)
 
-    # Species transport (RK4-based update)
-    concentration_ch4 = rho / W_CH4 * Y_ch4
-    concentration_o2 = rho / W_O2 * Y_o2
-    Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
+    Y_n2_new = Y_n2 + dt * rk4_step_Y_k(Y_n2, -u, v)
+    Y_o2_new = Y_o2 + dt * rk4_step_Y_k(Y_o2, -u, v)
+    Y_ch4_new = Y_ch4 + dt * rk4_step_Y_k(Y_ch4, -u, v)
+    Y_h2o_new = Y_h2o + dt * rk4_step_Y_k(Y_h2o, -u, v)
+    Y_co2_new = Y_co2 + dt * rk4_step_Y_k(Y_co2, -u, v)
 
-    source_term_n2 = nu_n2 / rho * W_N2 * Q
-    source_term_o2 = nu_o2 / rho * W_O2 * Q
-    source_term_ch4 = nu_ch4 / rho * W_CH4 * Q
-    source_term_h2o = nu_h2o / rho * W_H2O * Q
-    source_term_co2 = nu_co2 / rho * W_CO2 * Q
-
-    # omega_T = - (h_n2 / W_N2 * rho * source_term_n2
-    #              + h_o2 / W_O2 * rho * source_term_o2
-    #              + h_ch4 / W_CH4 * rho * source_term_ch4
-    #              + h_h2o / W_H2O * rho * source_term_h2o
-    #              + h_co2 / W_CO2 * rho * source_term_co2)
-    
-    # source_term_T = omega_T / (rho * c_p)
-
-    Y_n2_new = Y_n2 + dt * rk4_step_Y_k(Y_n2, -u, v, source_term_n2)
-    Y_o2_new = Y_o2 + dt * rk4_step_Y_k(Y_o2, -u, v, source_term_o2)
-    Y_ch4_new = Y_ch4 + dt * rk4_step_Y_k(Y_ch4, -u, v, source_term_ch4)
-    Y_h2o_new = Y_h2o + dt * rk4_step_Y_k(Y_h2o, -u, v, source_term_h2o)
-    Y_co2_new = Y_co2 + dt * rk4_step_Y_k(Y_co2, -u, v, source_term_co2)
-
-    # T_new = T + dt * rk4_step_Y_k(T, -u, v, source_term_T) # The Y_k method can also be used for T!
+    # For the moment, the T field is frozen in time
+    # T_new = T + dt * rk4_step_Y_k(T, -u, v) # The Y_k method can also be used for T!
 
     # Step 2
     u_double_star = u_star + dt * rk4_second_step_frac(u_star)
@@ -532,51 +456,34 @@ Y_ch4_history = []
 Y_h2o_history = []
 Y_co2_history = []
 
+@jit(fastmath=True, nopython=True)
+def system_evolution_rk4_chem(T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
 
-# First, we solve the very fast chemistry until the system stabilizes
-for it in tqdm(range(nb_timesteps_chem)):
+    # First, we solve the very fast chemistry until the system stabilizes
+    for _ in range(nb_timesteps_chem):
 
-    # First, we wait for the flame to be stabilized before applying advection and diffusion of the velocity fields
-    T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4_chem(T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
+        # First, we wait for the flame to be stabilized before applying advection and diffusion of the velocity fields
+        T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4_chem(T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
 
-    if convergence_by_tolerance_chem: 
-        residual = np.linalg.norm(T - T_new, ord=2) # When the T field is stabilized
-        if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
-            residual /= np.linalg.norm(v, ord=2)
+        if convergence_by_tolerance_chem: 
+            residual = np.linalg.norm(T - T_new, ord=2) # When the T field is stabilized
+            if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+                residual /= np.linalg.norm(v, ord=2)
 
-        if residual < tolerance_sys:
-            break
+            if residual < tolerance_sys:
+                break
 
-    T = np.copy(T_new)
-    Y_n2 = np.copy(Y_n2_new)
-    Y_o2 = np.copy(Y_o2_new)
-    Y_ch4 = np.copy(Y_ch4_new)
-    Y_h2o = np.copy(Y_h2o_new)
-    Y_co2 = np.copy(Y_co2_new)
-
-    if it % 1 == 0:
-        T_history.append(T.copy())
-        Y_n2_history.append(Y_n2.copy())
-        Y_o2_history.append(Y_o2.copy())
-        Y_ch4_history.append(Y_ch4.copy())
-        Y_h2o_history.append(Y_h2o.copy())
-        Y_co2_history.append(Y_co2.copy())
-
-plots.plot_field(T_history[-1], output_folder, show_figures, dpi, 'Temperature_chem field')
-plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_N2_chem field')
-plots.plot_field(Y_o2_history[-1], output_folder, show_figures, dpi, 'Y_O2_chem field')
-plots.plot_field(Y_ch4_history[-1], output_folder, show_figures, dpi, 'Y_CH4_chem field')
-plots.plot_field(Y_h2o_history[-1], output_folder, show_figures, dpi, 'Y_H2O_chem field')
-plots.plot_field(Y_co2_history[-1], output_folder, show_figures, dpi, 'Y_CO2_chem field')
+    return T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
 
 
 
-
-# Once the system is stabilized, we apply advection and diffusion of the velocity fields
 for it in tqdm(range(nb_timesteps)):
 
     u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
 
+    # Before going to the next timestep, we integrate the chemical evolution of the temperature field and the species (only source terms)
+    T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_rk4_chem(T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new)
+    
     if convergence_by_tolerance: 
         residual = np.linalg.norm(v - v_new, ord=2) # For example, with the v-field
         if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
@@ -645,7 +552,7 @@ else:
 # Final pressure field #
 ########################
 
-plots.plot_field(P[-1], output_folder, show_figures, dpi, 'Pressure field')
+plots.plot_field(P_history[-1], output_folder, show_figures, dpi, 'Pressure field')
 
 
 #####################################
@@ -698,28 +605,20 @@ plots.plot_field(T, output_folder, show_figures, dpi, 'Temperature field')
 # Animation of the flow evolution #
 ###################################
 
-if compute_animations: 
-    plots.animate_flow_evolution(-u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi)
+plots.animate_flow_evolution(-u_history, v_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations)
 
 
 #########################################################################################
 # Animation of the temperature field, the pressure field and the five species over time #
 #########################################################################################
 
-if compute_animations:
-    plots.animate_field_evolution(T_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Temperature')
-
-    plots.animate_field_evolution(P_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Pressure')
-
-    plots.animate_field_evolution(Y_n2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_N2')
-
-    plots.animate_field_evolution(Y_o2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_O2')
-
-    plots.animate_field_evolution(Y_ch4_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_CH4')
-
-    plots.animate_field_evolution(Y_h2o_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_H2O')
-
-    plots.animate_field_evolution(Y_co2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, 'Y_CO2')
+plots.animate_field_evolution(T_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Temperature')
+plots.animate_field_evolution(P_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Pressure')
+plots.animate_field_evolution(Y_n2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Y_N2')
+plots.animate_field_evolution(Y_o2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Y_O2')
+plots.animate_field_evolution(Y_ch4_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Y_CH4')
+plots.animate_field_evolution(Y_h2o_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Y_H2O')
+plots.animate_field_evolution(Y_co2_history, Lx, Ly, nb_points, L_slot, L_coflow, output_folder, dpi, show_animations, 'Y_CO2')
 
 
 

@@ -5,11 +5,11 @@ import numpy as np
 # Constants #
 #############
 
-nb_points = 32
-dt = 1e-6
-dt_chem = 1e-9
-final_time = 1e-4
-final_time_chem = 1e-3
+nb_points = 102
+dt = 1e-5
+dt_chem = 1e-8
+final_time = 1 
+final_time_chem = 1e-5
 nb_timesteps = int(final_time / dt)
 nb_timesteps_chem = int(final_time_chem / dt_chem)
 Lx, Ly = 2e-3, 2e-3
@@ -26,7 +26,7 @@ omega = 2 / (1 + np.sin(np.pi / nb_points))  # Parameter for the Successive Over
 ##################################
 
 tolerance_sor = 1e-7 # Tolerance for the convergence of the SOR algorithm
-tolerance_sys = 1e-7 # Tolerance for the convergence of the whole system
+tolerance_sys = 1e-5 # Tolerance for the convergence of the whole system
 
 #############
 # Chemistry #
