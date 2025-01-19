@@ -6,7 +6,7 @@ from numba import jit
 import derivatives_vectorized as der
 import plotting as plots
 from constants import (
-    nb_points, dt, nb_timesteps, Lx, Ly, L_slot, L_coflow, U_slot, U_coflow, 
+    nb_points, dt, dt_chem, nb_timesteps, nb_timesteps_chem, Lx, Ly, L_slot, L_coflow, U_slot, U_coflow, 
     T_slot, T_coflow, dx, dy, max_iter_sor, omega, tolerance_sor, tolerance_sys, 
     rho, nu, A, T_a, c_p, W_N2, W_O2, W_CH4, W_H2O, W_CO2, 
     nu_ch4, nu_o2, nu_n2, nu_h2o, nu_co2, h_n2, h_o2, h_ch4, h_h2o, h_co2
@@ -26,6 +26,7 @@ compute_animations = True
 # If this variable is set to true, the calculation will stop to evolve when the tolerance for convergence is reached.
 # If it is set to False, the calculation will stop at the given final_time
 convergence_by_tolerance = False 
+convergence_by_tolerance_chem = False
 
 # To make sure that the folder exists
 os.makedirs(output_folder, exist_ok=True) 
@@ -60,7 +61,7 @@ Y_co2 = np.zeros((nb_points, nb_points))
 # Successive Overrelaxation (SOR) method #
 ##########################################
 
-# #@jit(fastmath=True, nopython=True)
+# @jit(fastmath=True, nopython=True)
 # def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
 #     """
 #     Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -107,7 +108,8 @@ Y_co2 = np.zeros((nb_points, nb_points))
 #     return P
 
 
-#@jit(fastmath=True, nopython=True)
+
+@jit(fastmath=True, nopython=True)
 def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omega):
     """
     Vectorized Successive Overrelaxation (SOR) method for solving the pressure Poisson equation.
@@ -168,7 +170,7 @@ def sor(P, f, tolerance_sor=tolerance_sor, max_iter_sor=max_iter_sor, omega=omeg
 # Boundary conditions #
 #######################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def boundary_conditions(u, v, P, T, Y_n2, Y_o2, Y_ch4):
     # Boundary conditions for the velocity field
     u[:, 0] = 0
@@ -213,7 +215,7 @@ def boundary_conditions(u, v, P, T, Y_n2, Y_o2, Y_ch4):
 # First step of the RK4 #
 #########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_first_u(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(u)
     derivative_y = der.derivative_y_centered(u)
@@ -225,7 +227,7 @@ def compute_rhs_first_u(u : np.array, v : np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_first_v(u : np.array, v : np.array):
     derivative_x = der.derivative_x_centered(v)
     derivative_y = der.derivative_y_centered(v)
@@ -237,7 +239,7 @@ def compute_rhs_first_v(u : np.array, v : np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_u(u, v)
@@ -248,7 +250,7 @@ def rk4_first_step_frac_u(u : np.array, v : np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
     
     k1 = compute_rhs_first_v(u, v)
@@ -263,7 +265,7 @@ def rk4_first_step_frac_v(u : np.array, v : np.array, dt=dt):
 # Second step of the RK4 #
 ##########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_second(u : np.array):
     second_derivative_x = der.second_centered_x(u)
     second_derivative_y = der.second_centered_y(u)
@@ -273,7 +275,7 @@ def compute_rhs_second(u : np.array):
     )
     return rhs
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_second_step_frac(u : np.array, dt=dt):
     
     k1 = compute_rhs_second(u)
@@ -288,7 +290,7 @@ def rk4_second_step_frac(u : np.array, dt=dt):
 # Fourth step of the RK4 (the third one is SOR) #
 #################################################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_u(P : np.array):
     derivative_x = der.derivative_x_centered(P)
 
@@ -298,7 +300,7 @@ def compute_rhs_u(P : np.array):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def compute_rhs_v(P):
     derivative_y = der.derivative_y_centered(P)
 
@@ -308,7 +310,7 @@ def compute_rhs_v(P):
     return rhs
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_u(P : np.array, dt = dt):
 
     k1 = compute_rhs_u(P)
@@ -319,7 +321,7 @@ def rk4_fourth_step_frac_u(P : np.array, dt = dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
 def rk4_fourth_step_frac_v(P : np.array, dt = dt):
     
     k1 = compute_rhs_v(P)
@@ -334,8 +336,8 @@ def rk4_fourth_step_frac_v(P : np.array, dt = dt):
 # Solving species transport using RK4 #
 #######################################
 
-#@jit(fastmath=True, nopython=True)
-def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
+@jit(fastmath=True, nopython=True)
+def compute_rhs_Y_k(Y_k : np.array, u : np.array, v : np.array, source_term: np.array):
     derivative_x = der.derivative_x_centered(Y_k)
     derivative_y = der.derivative_y_centered(Y_k)
     second_derivative_x = der.second_centered_x(Y_k)
@@ -349,9 +351,25 @@ def compute_rhs_Y_k(Y_k, u : np.array, v : np.array, source_term: np.array):
     )
     return rhs
 
+@jit(fastmath=True, nopython=True)
+def compute_rhs_Y_k_chem(Y_k : np.array, source_term: np.array):
+    """This function computes the r.h.s. of a given species 
+    (and of the temperature) given only the source term (for the chemical evolution)
 
-#@jit(fastmath=True, nopython=True)
-def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
+    Args:
+        source_term (np.array): Source term of a given species
+
+    Returns:
+        rhs: Right hand side of the equation (only source term)
+    """
+
+    rhs = source_term
+
+    return rhs
+
+
+@jit(fastmath=True, nopython=True)
+def rk4_step_Y_k(Y_k : np.array, u : np. array, source_term: np.array, dt=dt):
     """
     Perform a single Runge-Kutta 4th order step for species advection-diffusion.
 
@@ -373,11 +391,71 @@ def rk4_step_Y_k(Y_k, u : np. array, source_term: np.array, dt=dt):
     return (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
+@jit(fastmath=True, nopython=True)
+def rk4_step_Y_k_chem(Y_k : np.array, source_term: np.array, dt=dt_chem):
+    """
+    Perform a single Runge-Kutta 4th order step for species advection-diffusion.
+
+    Parameters:
+        Y_k (np.array): Scalar field (e.g., species concentration).
+        u, v (np.array): Velocity components.
+        source_term (np.array): Source term for species.
+        dx, dy, dt (float): Spatial and temporal resolutions.
+
+    Returns:
+        np.array: Updated scalar field after one RK4 step.
+    """
+
+    k1 = compute_rhs_Y_k_chem(Y_k, source_term)
+    k2 = compute_rhs_Y_k_chem(Y_k + 0.5 * dt * k1, source_term)
+    k3 = compute_rhs_Y_k_chem(Y_k + 0.5 * dt * k2, source_term)
+    k4 = compute_rhs_Y_k_chem(Y_k + dt * k3, source_term)
+
+    return (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+
 ##########################
 # Fractional-step method #
 ##########################
 
-#@jit(fastmath=True, nopython=True)
+@jit(fastmath=True, nopython=True)
+def system_evolution_kernel_rk4_chem(T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
+    
+    # Species transport (RK4-based update)
+    concentration_ch4 = rho / W_CH4 * Y_ch4
+    concentration_o2 = rho / W_O2 * Y_o2
+    Q = A * concentration_ch4 * concentration_o2**2 * np.exp(-T_a / T)
+
+    source_term_n2 = nu_n2 / rho * W_N2 * Q
+    source_term_o2 = nu_o2 / rho * W_O2 * Q
+    source_term_ch4 = nu_ch4 / rho * W_CH4 * Q
+    source_term_h2o = nu_h2o / rho * W_H2O * Q
+    source_term_co2 = nu_co2 / rho * W_CO2 * Q
+
+    omega_T = - (h_n2 / W_N2 * rho * source_term_n2
+                 + h_o2 / W_O2 * rho * source_term_o2
+                 + h_ch4 / W_CH4 * rho * source_term_ch4
+                 + h_h2o / W_H2O * rho * source_term_h2o
+                 + h_co2 / W_CO2 * rho * source_term_co2)
+    
+    source_term_T = omega_T / (rho * c_p)
+
+    Y_n2_new = Y_n2 + dt * rk4_step_Y_k_chem(Y_n2, source_term_n2)
+    Y_o2_new = Y_o2 + dt * rk4_step_Y_k_chem(Y_o2, source_term_o2)
+    Y_ch4_new = Y_ch4 + dt * rk4_step_Y_k_chem(Y_ch4, source_term_ch4)
+    Y_h2o_new = Y_h2o + dt * rk4_step_Y_k_chem(Y_h2o, source_term_h2o)
+    Y_co2_new = Y_co2 + dt * rk4_step_Y_k_chem(Y_co2, source_term_co2)
+
+    T_new = T + dt * rk4_step_Y_k_chem(T, source_term_T) # The Y_k method can also be used for T!
+
+    # Boundary conditions (we are only interested here in applying this function to T and the concerned species)
+    _, _, _, T_new, Y_n2_new, Y_o2_new, Y_ch4_new = boundary_conditions(np.zeros_like(T), np.zeros_like(T), np.zeros_like(T), 
+                                                                        T, Y_n2_new, Y_o2_new, Y_ch4_new)
+        
+    return T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new
+
+
+@jit(fastmath=True, nopython=True)
 def system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2):
     # Step 1
     u_star = u - dt * rk4_first_step_frac_u(u, v)
@@ -454,6 +532,47 @@ Y_ch4_history = []
 Y_h2o_history = []
 Y_co2_history = []
 
+
+# First, we solve the very fast chemistry until the system stabilizes
+for it in tqdm(range(nb_timesteps_chem)):
+
+    # First, we wait for the flame to be stabilized before applying advection and diffusion of the velocity fields
+    T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4_chem(T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
+
+    if convergence_by_tolerance_chem: 
+        residual = np.linalg.norm(T - T_new, ord=2) # When the T field is stabilized
+        if np.linalg.norm(v, ord=2) > 10e-10:  # Avoid divide-by-zero by checking the norm
+            residual /= np.linalg.norm(v, ord=2)
+
+        if residual < tolerance_sys:
+            break
+
+    T = np.copy(T_new)
+    Y_n2 = np.copy(Y_n2_new)
+    Y_o2 = np.copy(Y_o2_new)
+    Y_ch4 = np.copy(Y_ch4_new)
+    Y_h2o = np.copy(Y_h2o_new)
+    Y_co2 = np.copy(Y_co2_new)
+
+    if it % 1 == 0:
+        T_history.append(T.copy())
+        Y_n2_history.append(Y_n2.copy())
+        Y_o2_history.append(Y_o2.copy())
+        Y_ch4_history.append(Y_ch4.copy())
+        Y_h2o_history.append(Y_h2o.copy())
+        Y_co2_history.append(Y_co2.copy())
+
+plots.plot_field(T_history[-1], output_folder, show_figures, dpi, 'Temperature_chem field')
+plots.plot_field(Y_n2_history[-1], output_folder, show_figures, dpi, 'Y_N2_chem field')
+plots.plot_field(Y_o2_history[-1], output_folder, show_figures, dpi, 'Y_O2_chem field')
+plots.plot_field(Y_ch4_history[-1], output_folder, show_figures, dpi, 'Y_CH4_chem field')
+plots.plot_field(Y_h2o_history[-1], output_folder, show_figures, dpi, 'Y_H2O_chem field')
+plots.plot_field(Y_co2_history[-1], output_folder, show_figures, dpi, 'Y_CO2_chem field')
+
+
+
+
+# Once the system is stabilized, we apply advection and diffusion of the velocity fields
 for it in tqdm(range(nb_timesteps)):
 
     u_new, v_new, P_new, T_new, Y_n2_new, Y_o2_new, Y_ch4_new, Y_h2o_new, Y_co2_new = system_evolution_kernel_rk4(u, v, P, T, Y_n2, Y_o2, Y_ch4, Y_h2o, Y_co2)
@@ -526,19 +645,8 @@ else:
 # Final pressure field #
 ########################
 
-plt.figure(figsize=(6, 5))
-plt.imshow(P, cmap='viridis')  # Display the data as an image
-plt.colorbar(label='Value')  # Add a colorbar with a label
-plt.title('Pressure field')  # Add a title
-plt.xlabel('X-axis')  # Label for the x-axis
-plt.ylabel('Y-axis')  # Label for the y-axis
-filename = 'Pressure field'
-plt.savefig(os.path.join(output_folder, filename), dpi = dpi)
+plots.plot_field(P[-1], output_folder, show_figures, dpi, 'Pressure field')
 
-if show_figures: 
-    plt.show()
-else:
-    plt.close()
 
 #####################################
 # Final velocity fields (magnitude) #

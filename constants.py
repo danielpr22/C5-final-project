@@ -7,8 +7,11 @@ import numpy as np
 
 nb_points = 32
 dt = 1e-6
+dt_chem = 1e-9
 final_time = 1e-4
+final_time_chem = 1e-3
 nb_timesteps = int(final_time / dt)
+nb_timesteps_chem = int(final_time_chem / dt_chem)
 Lx, Ly = 2e-3, 2e-3
 L_slot, L_coflow= 0.5e-3, 0.5e-3
 U_slot, U_coflow = 1.0, 0.2
